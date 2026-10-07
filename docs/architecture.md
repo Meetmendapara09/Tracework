@@ -6,12 +6,12 @@ Tracework consists of a small Node HTTP server (`server.js`), a dependency-free 
 
 A workspace is `{ revision, nodes, links }`. All identifiers are stable strings. Every node has `id`, `type`, `title`, `body`, `url`, `due`, `tags`, `status`, `createdAt`, and `updatedAt`. Unused optional string fields are empty strings; `tags` is an array. Older backups without `tags` load with an empty array, so existing workspaces migrate without an extra command. Tags are trimmed, unique case-insensitively, limited to 12 per node and 32 characters each, and cannot contain CSV tag separators or control characters. The four node types are:
 
-| Type | Meaning | Status values | Extra field |
-| --- | --- | --- | --- |
-| `source` | Reference, observation, interview, artifact | `""` | HTTP(S) `url` |
-| `claim` | Interpretation or hypothesis | `open`, `reviewed` | - |
-| `decision` | Chosen direction and rationale | `proposed`, `accepted`, `rejected` | - |
-| `task` | Follow-up action | `todo`, `doing`, `done` | ISO calendar `due` date (`YYYY-MM-DD`) |
+| Type       | Meaning                                     | Status values                      | Extra field                            |
+| ---------- | ------------------------------------------- | ---------------------------------- | -------------------------------------- |
+| `source`   | Reference, observation, interview, artifact | `""`                               | HTTP(S) `url`                          |
+| `claim`    | Interpretation or hypothesis                | `open`, `reviewed`                 | -                                      |
+| `decision` | Chosen direction and rationale              | `proposed`, `accepted`, `rejected` | -                                      |
+| `task`     | Follow-up action                            | `todo`, `doing`, `done`            | ISO calendar `due` date (`YYYY-MM-DD`) |
 
 Links have `{ id, from, to, kind }`. Legal edges are `source → claim` (`supports`, `challenges`), `claim → decision` (`informs`), and `decision → task` (`advances`). The same pair can have both `supports` and `challenges` links; duplicate **identical** edges are prohibited. Deleting a node removes all adjacent edges.
 
@@ -19,7 +19,7 @@ The UI and Markdown export compute these signals from the graph rather than stor
 
 - **Claim:** `Contested` if it has one or more challenges, otherwise `Supported` if it has one or more supports, otherwise `Unverified`.
 - **Decision:** `No claims linked` if no claims inform it; `Needs review` if any informing claim is contested; `Evidence gap` if any informing claim is unverified; otherwise `Evidence linked`.
-- **Dashboard:** evidence gaps count claims with *zero supports* (including contested claims with no support); points of tension count claims with *at least one challenge*. These counts are not mutually exclusive.
+- **Dashboard:** evidence gaps count claims with _zero supports_ (including contested claims with no support); points of tension count claims with _at least one challenge_. These counts are not mutually exclusive.
 
 These rules highlight where a human should review reasoning; they do not measure truth or statistical confidence.
 

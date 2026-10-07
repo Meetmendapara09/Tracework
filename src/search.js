@@ -18,7 +18,14 @@ export function parseSearchQuery(input) {
     if (phrase.trim()) phrases.push(phrase.trim().toLowerCase());
     return ' ';
   });
-  const filters = { types: new Set(), tags: new Set(), statuses: new Set(), states: new Set(), before: null, after: null };
+  const filters = {
+    types: new Set(),
+    tags: new Set(),
+    statuses: new Set(),
+    states: new Set(),
+    before: null,
+    after: null,
+  };
   const terms = [];
   for (const token of withoutPhrases.split(/\s+/).filter(Boolean)) {
     const match = token.match(FILTER_PATTERN);
@@ -65,8 +72,8 @@ function stateOf(workspace, node) {
 function matchesFilters(workspace, node, filters) {
   if (filters.types.size && !filters.types.has(node.type)) return false;
   if (filters.tags.size) {
-    const tags = new Set((node.tags || []).map(tag => tag.toLowerCase()));
-    if (![...filters.tags].every(tag => tags.has(tag))) return false;
+    const tags = new Set((node.tags || []).map((tag) => tag.toLowerCase()));
+    if (![...filters.tags].every((tag) => tags.has(tag))) return false;
   }
   if (filters.statuses.size && !filters.statuses.has((node.status || '').toLowerCase())) return false;
   if (filters.states.size) {
@@ -81,7 +88,7 @@ function matchesFilters(workspace, node, filters) {
 function matchesPhrases(node, phrases) {
   if (!phrases.length) return true;
   const haystack = `${node.title} ${node.body} ${(node.tags || []).join(' ')} ${node.url}`.toLowerCase();
-  return phrases.every(phrase => haystack.includes(phrase));
+  return phrases.every((phrase) => haystack.includes(phrase));
 }
 function snippetFor(node, terms) {
   const text = node.body || node.title;
@@ -122,11 +129,12 @@ export function createSearchIndex(workspace) {
   }
   return {
     search(rawQuery, { limit = 50 } = {}) {
-      if (!Number.isSafeInteger(limit) || limit < 1 || limit > MAX_LIMIT) throw new AppError(400, `Limit must be 1-${MAX_LIMIT}`);
+      if (!Number.isSafeInteger(limit) || limit < 1 || limit > MAX_LIMIT)
+        throw new AppError(400, `Limit must be 1-${MAX_LIMIT}`);
       const { terms, phrases, filters } = parseSearchQuery(rawQuery);
       let ranked;
       if (!terms.length) {
-        ranked = [...nodes].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map(node => ({ node, score: 0 }));
+        ranked = [...nodes].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map((node) => ({ node, score: 0 }));
       } else {
         const hits = new Map();
         for (const result of index.search(terms.join(' '))) {
@@ -139,7 +147,14 @@ export function createSearchIndex(workspace) {
       for (const { node, score } of ranked) {
         if (!matchesPhrases(node, phrases)) continue;
         if (!matchesFilters(workspace, node, filters)) continue;
-        results.push({ id: node.id, type: node.type, title: node.title, snippet: snippetFor(node, terms), score: Math.round(score * 1000) / 1000 });
+        results.push({
+          id: node.id,
+          type: node.type,
+          title: node.title,
+          snippet: snippetFor(node, terms),
+          score: Math.round(score * 1000) / 1000,
+          tags: node.tags || [],
+        });
         if (results.length >= limit) break;
       }
       return { total: results.length, results };

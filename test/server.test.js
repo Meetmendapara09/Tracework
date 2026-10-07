@@ -10,17 +10,28 @@ import { emptyWorkspace } from '../src/core.js';
 async function fixture(t) {
   const dir = await mkdtemp(join(tmpdir(), 'tracework-http-'));
   const server = await createApp({ dataFile: join(dir, 'workspace.json'), initial: emptyWorkspace() });
-  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  t.after(async () => { await new Promise(resolve => server.close(resolve)); await rm(dir, { recursive: true, force: true }); });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(async () => {
+    await new Promise((resolve) => server.close(resolve));
+    await rm(dir, { recursive: true, force: true });
+  });
   const base = `http://127.0.0.1:${server.address().port}`;
   const request = async (path, method = 'GET', data, revision = 0, headers = {}) => {
-    const response = await fetch(base + path, { method, headers: { ...(method !== 'GET' ? { 'If-Match': String(revision) } : {}), ...(data !== undefined ? { 'Content-Type': 'application/json' } : {}), ...headers }, ...(data !== undefined ? { body: typeof data === 'string' ? data : JSON.stringify(data) } : {}) });
+    const response = await fetch(base + path, {
+      method,
+      headers: {
+        ...(method !== 'GET' ? { 'If-Match': String(revision) } : {}),
+        ...(data !== undefined ? { 'Content-Type': 'application/json' } : {}),
+        ...headers,
+      },
+      ...(data !== undefined ? { body: typeof data === 'string' ? data : JSON.stringify(data) } : {}),
+    });
     return { response, body: await response.text() };
   };
   return { request, port: server.address().port };
 }
 
-test('serves a local-only app and constrains static routes', async t => {
+test('serves a local-only app and constrains static routes', async (t) => {
   const { request } = await fixture(t);
   const page = await request('/');
   assert.equal(page.response.status, 200);
@@ -33,7 +44,7 @@ test('serves a local-only app and constrains static routes', async t => {
   assert.equal((await request('/..%2Fserver.js')).response.status, 404);
 });
 
-test('API revision checks, CRUD, exports, and re-import round trip', async t => {
+test('API revision checks, CRUD, exports, and re-import round trip', async (t) => {
   const { request } = await fixture(t);
   assert.equal((await request('/api/workspace')).body, JSON.stringify(emptyWorkspace()));
   const missing = await request('/api/nodes', 'POST', { type: 'task', title: 'Check' }, 0, { 'If-Match': '' });
@@ -62,12 +73,16 @@ test('API revision checks, CRUD, exports, and re-import round trip', async t => 
   assert.equal(state.revision, 4);
 });
 
-test('CSV preview, deduplication, commit, and spreadsheet export', async t => {
+test('CSV preview, deduplication, commit, and spreadsheet export', async (t) => {
   const { request } = await fixture(t);
-  const csv = 'type,title,body,url,status,due,tags\nsource,"Notes, session one",Observation,https://example.org,,,Research|Sprint 1\nclaim,Interpretation,Reasoning,,open,,\n';
+  const csv =
+    'type,title,body,url,status,due,tags\nsource,"Notes, session one",Observation,https://example.org,,,Research|Sprint 1\nclaim,Interpretation,Reasoning,,open,,\n';
   let result = await request('/api/import/preview', 'POST', { csv });
   assert.equal(result.response.status, 200);
-  assert.deepEqual(JSON.parse(result.body).entries.map(entry => entry.action), ['add', 'add']);
+  assert.deepEqual(
+    JSON.parse(result.body).entries.map((entry) => entry.action),
+    ['add', 'add'],
+  );
   result = await request('/api/import/csv', 'POST', { csv });
   assert.equal(result.response.status, 200);
   const imported = JSON.parse(result.body);
@@ -84,7 +99,7 @@ test('CSV preview, deduplication, commit, and spreadsheet export', async t => {
   assert.match((await request('/api/export.md')).body, /Tags: Research, Sprint 1/);
 });
 
-test('bad CSV import does not partly save valid rows', async t => {
+test('bad CSV import does not partly save valid rows', async (t) => {
   const { request } = await fixture(t);
   const bad = 'type,title,due\nsource,Good,\ntask,Bad,2025-02-29';
   const result = await request('/api/import/csv', 'POST', { csv: bad });
@@ -93,16 +108,25 @@ test('bad CSV import does not partly save valid rows', async t => {
   assert.equal((await request('/api/workspace')).body, JSON.stringify(emptyWorkspace()));
 });
 
-test('preserves UTF-8 characters across split request chunks', async t => {
+test('preserves UTF-8 characters across split request chunks', async (t) => {
   const { port } = await fixture(t);
   const body = Buffer.from(JSON.stringify({ type: 'source', title: 'Résumé 🧪' }));
   const split = body.indexOf(Buffer.from('🧪')) + 2;
   const result = await new Promise((resolve, reject) => {
-    const req = http.request({ hostname: '127.0.0.1', port, path: '/api/nodes', method: 'POST', headers: { 'Content-Type': 'application/json', 'If-Match': '0' } }, res => {
-      let text = '';
-      res.on('data', chunk => text += chunk);
-      res.on('end', () => resolve({ status: res.statusCode, state: JSON.parse(text) }));
-    });
+    const req = http.request(
+      {
+        hostname: '127.0.0.1',
+        port,
+        path: '/api/nodes',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'If-Match': '0' },
+      },
+      (res) => {
+        let text = '';
+        res.on('data', (chunk) => (text += chunk));
+        res.on('end', () => resolve({ status: res.statusCode, state: JSON.parse(text) }));
+      },
+    );
     req.on('error', reject);
     req.write(body.subarray(0, split));
     req.end(body.subarray(split));
@@ -111,16 +135,30 @@ test('preserves UTF-8 characters across split request chunks', async t => {
   assert.equal(result.state.nodes[0].title, 'Résumé 🧪');
 });
 
-test('rejects malformed input and cross-origin writes', async t => {
+test('rejects malformed input and cross-origin writes', async (t) => {
   const { request, port } = await fixture(t);
-  assert.equal((await request('/api/nodes', 'POST', { type: 'source', title: 'bad' }, 0, { Origin: 'https://attacker.example' })).response.status, 403);
+  assert.equal(
+    (await request('/api/nodes', 'POST', { type: 'source', title: 'bad' }, 0, { Origin: 'https://attacker.example' }))
+      .response.status,
+    403,
+  );
   const hostStatus = await new Promise((resolve, reject) => {
-    const req = http.get({ hostname: '127.0.0.1', port, path: '/api/workspace', headers: { Host: 'attacker.example' } }, res => { res.resume(); resolve(res.statusCode); });
+    const req = http.get(
+      { hostname: '127.0.0.1', port, path: '/api/workspace', headers: { Host: 'attacker.example' } },
+      (res) => {
+        res.resume();
+        resolve(res.statusCode);
+      },
+    );
     req.on('error', reject);
   });
   assert.equal(hostStatus, 403);
   assert.equal((await request('/api/nodes', 'POST', '{broken')).response.status, 400);
   assert.equal((await request('/api/nodes', 'POST', '"text"')).response.status, 400);
-  assert.equal((await request('/api/nodes', 'POST', { type: 'source', title: 'ok' }, 0, { 'Content-Type': 'text/plain' })).response.status, 415);
+  assert.equal(
+    (await request('/api/nodes', 'POST', { type: 'source', title: 'ok' }, 0, { 'Content-Type': 'text/plain' })).response
+      .status,
+    415,
+  );
   assert.equal((await request('/api/workspace')).body, JSON.stringify(emptyWorkspace()));
 });

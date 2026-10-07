@@ -3,7 +3,14 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { claimHealth, createStore, decisionHealth, emptyWorkspace, exportMarkdown, validateWorkspace } from '../src/core.js';
+import {
+  claimHealth,
+  createStore,
+  decisionHealth,
+  emptyWorkspace,
+  exportMarkdown,
+  validateWorkspace,
+} from '../src/core.js';
 import { sampleWorkspace } from '../src/sample.js';
 
 async function fixture(t) {
@@ -12,7 +19,9 @@ async function fixture(t) {
   const file = join(dir, 'nested', 'workspace.json');
   return { file, store: await createStore(file, emptyWorkspace()).init() };
 }
-function last(state, collection) { return state[collection].at(-1).id; }
+function last(state, collection) {
+  return state[collection].at(-1).id;
+}
 
 test('fictional example is a valid, connected workspace', () => {
   const sample = sampleWorkspace();
@@ -21,9 +30,14 @@ test('fictional example is a valid, connected workspace', () => {
   assert.equal(decisionHealth(sample, 'd-trail'), 'Evidence linked');
 });
 
-test('creates, updates, reloads, and cascades deleted connections', async t => {
+test('creates, updates, reloads, and cascades deleted connections', async (t) => {
   const { file, store } = await fixture(t);
-  let state = await store.addNode(0, { type: 'source', title: '  Paper  ', url: 'https://example.org/study', body: 'notes' });
+  let state = await store.addNode(0, {
+    type: 'source',
+    title: '  Paper  ',
+    url: 'https://example.org/study',
+    body: 'notes',
+  });
   assert.equal(state.nodes[0].title, 'Paper');
   const source = last(state, 'nodes');
   state = await store.addNode(state.revision, { type: 'claim', title: 'Hypothesis' });
@@ -39,14 +53,16 @@ test('creates, updates, reloads, and cascades deleted connections', async t => {
   assert.equal(claimHealth(state, claim).label, 'Unverified');
 });
 
-test('tags are validated, editable, and old backups migrate without losing data', async t => {
+test('tags are validated, editable, and old backups migrate without losing data', async (t) => {
   const { file, store } = await fixture(t);
   let state = await store.addNode(0, { type: 'source', title: 'Tagged paper', tags: ['Methods', 'Phase 1'] });
   assert.deepEqual(state.nodes[0].tags, ['Methods', 'Phase 1']);
   await assert.rejects(store.updateNode(1, state.nodes[0].id, { tags: ['Methods', 'methods'] }), { status: 400 });
   state = await store.updateNode(1, state.nodes[0].id, { tags: ['Reviewed'] });
   assert.match(exportMarkdown(state), /Tags: Reviewed/);
-  state = await store.updateNode(state.revision, state.nodes[0].id, { citation: { doi: '10.1234/example', authors: 'Last, First', year: '2024', venue: 'Journal' } });
+  state = await store.updateNode(state.revision, state.nodes[0].id, {
+    citation: { doi: '10.1234/example', authors: 'Last, First', year: '2024', venue: 'Journal' },
+  });
   const brief = exportMarkdown(state);
   assert.match(brief, /DOI: 10\.1234\/example/);
   assert.match(brief, /Authors: Last, First/);
@@ -58,7 +74,7 @@ test('tags are validated, editable, and old backups migrate without losing data'
   assert.deepEqual((await createStore(file).init()).snapshot().nodes[0].tags, []);
 });
 
-test('CSV batches are atomic and preserve existing links', async t => {
+test('CSV batches are atomic and preserve existing links', async (t) => {
   const { store } = await fixture(t);
   const first = await store.addNode(0, { type: 'source', title: 'Existing', url: 'https://example.org' });
   const rows = [
@@ -68,26 +84,29 @@ test('CSV batches are atomic and preserve existing links', async t => {
   let result = await store.importNodes(first.revision, rows);
   assert.deepEqual(result.report, { added: 1, skipped: 1 });
   assert.equal(result.workspace.nodes.length, 2);
-  await assert.rejects(store.importNodes(result.workspace.revision, [...rows, { line: 4, item: { type: 'task', title: '' } }]), { status: 400 });
+  await assert.rejects(
+    store.importNodes(result.workspace.revision, [...rows, { line: 4, item: { type: 'task', title: '' } }]),
+    { status: 400 },
+  );
   assert.equal(store.snapshot().revision, result.workspace.revision);
   await assert.rejects(store.importNodes(first.revision, rows), { status: 409 });
 });
 
-test('serializes concurrent writes; rejects stale revisions without losing changes', async t => {
+test('serializes concurrent writes; rejects stale revisions without losing changes', async (t) => {
   const { store } = await fixture(t);
   const results = await Promise.allSettled([
     store.addNode(0, { type: 'task', title: 'First' }),
     store.addNode(0, { type: 'task', title: 'Second' }),
   ]);
-  assert.equal(results.filter(result => result.status === 'fulfilled').length, 1);
-  assert.equal(results.filter(result => result.status === 'rejected')[0].reason.status, 409);
+  assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
+  assert.equal(results.filter((result) => result.status === 'rejected')[0].reason.status, 409);
   assert.equal(store.snapshot().nodes.length, 1);
   assert.equal(store.snapshot().revision, 1);
   await assert.rejects(store.addNode(0, { type: 'task', title: 'Stale' }), { status: 409 });
   assert.equal(store.snapshot().nodes.length, 1);
 });
 
-test('validates fields, URLs, dates, graph directions, and duplicate links', async t => {
+test('validates fields, URLs, dates, graph directions, and duplicate links', async (t) => {
   const { store } = await fixture(t);
   await assert.rejects(store.addNode(0, { type: 'source', title: 'x', url: 'javascript:alert(1)' }), { status: 400 });
   await assert.rejects(store.addNode(0, { type: 'task', title: 'x', due: '2025-02-29' }), { status: 400 });
@@ -104,7 +123,7 @@ test('validates fields, URLs, dates, graph directions, and duplicate links', asy
   await assert.rejects(store.updateNode(state.revision, claim, { url: 'https://example.com' }), { status: 400 });
 });
 
-test('import validates the entire backup atomically, including relationships', async t => {
+test('import validates the entire backup atomically, including relationships', async (t) => {
   const { store } = await fixture(t);
   let state = await store.addNode(0, { type: 'source', title: 'Keep me' });
   const clean = structuredClone(state);
@@ -121,11 +140,14 @@ test('import validates the entire backup atomically, including relationships', a
   assert.deepEqual(validateWorkspace({ nodes: [], links: [] }), { nodes: [], links: [] });
 });
 
-test('decision readiness and Markdown brief expose evidence gaps and connections', async t => {
+test('decision readiness and Markdown brief expose evidence gaps and connections', async (t) => {
   const { store } = await fixture(t);
-  let state = await store.addNode(0, { type: 'source', title: 'Interview' }); const source = last(state, 'nodes');
-  state = await store.addNode(state.revision, { type: 'claim', title: 'Friction' }); const claim = last(state, 'nodes');
-  state = await store.addNode(state.revision, { type: 'decision', title: 'Pilot' }); const decision = last(state, 'nodes');
+  let state = await store.addNode(0, { type: 'source', title: 'Interview' });
+  const source = last(state, 'nodes');
+  state = await store.addNode(state.revision, { type: 'claim', title: 'Friction' });
+  const claim = last(state, 'nodes');
+  state = await store.addNode(state.revision, { type: 'decision', title: 'Pilot' });
+  const decision = last(state, 'nodes');
   assert.equal(decisionHealth(state, decision), 'No claims linked');
   state = await store.addLink(state.revision, { from: claim, to: decision, kind: 'informs' });
   assert.equal(decisionHealth(state, decision), 'Evidence gap');
@@ -139,7 +161,7 @@ test('decision readiness and Markdown brief expose evidence gaps and connections
   assert.match(markdown, /## Sources/);
 });
 
-test('Markdown titles are escaped and corrupt files fail closed', async t => {
+test('Markdown titles are escaped and corrupt files fail closed', async (t) => {
   const { file, store } = await fixture(t);
   const state = await store.addNode(0, { type: 'source', title: '<script> *citation*' });
   assert.ok(exportMarkdown(state).includes('### \\<script\\> \\*citation\\*'));

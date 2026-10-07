@@ -6,19 +6,19 @@ Most routes accept an optional `?project=<id>` query parameter. Without it, they
 
 ## Reads and downloads
 
-| Method | Route | Response |
-| --- | --- | --- |
-| GET | `/api/health` | `{ "ok": true }` |
-| GET | `/api/projects` | `{ "defaultId": "default", "projects": [...] }` |
-| GET | `/api/workspace` | Complete `{ revision, nodes, links }` |
-| GET | `/api/history` | `{ "revision": n, "entries": [{ id, action, at, fromRevision, toRevision }] }` |
-| GET | `/api/search?q=...&limit=...` | `{ "total": n, "results": [{ id, type, title, snippet, score }] }` |
-| GET | `/api/export.json` | Complete workspace JSON (restorable) |
-| GET | `/api/export.md` | Human-readable brief, including tags, citations, and connections |
-| GET | `/api/export.csv` | Spreadsheet-safe items (no links/IDs; **not** a backup) |
-| GET | `/api/template.csv` | CSV column headers for import |
-| GET | `/api/nodes/:id/attachments` | `{ "attachments": [{ id, filename, size, contentType, createdAt }] }` |
-| GET | `/api/nodes/:id/attachments/:aid` | The PDF file (`application/pdf`) |
+| Method | Route                             | Response                                                                       |
+| ------ | --------------------------------- | ------------------------------------------------------------------------------ |
+| GET    | `/api/health`                     | `{ "ok": true }`                                                               |
+| GET    | `/api/projects`                   | `{ "defaultId": "default", "projects": [...] }`                                |
+| GET    | `/api/workspace`                  | Complete `{ revision, nodes, links }`                                          |
+| GET    | `/api/history`                    | `{ "revision": n, "entries": [{ id, action, at, fromRevision, toRevision }] }` |
+| GET    | `/api/search?q=...&limit=...`     | `{ "total": n, "results": [{ id, type, title, snippet, score }] }`             |
+| GET    | `/api/export.json`                | Complete workspace JSON (restorable)                                           |
+| GET    | `/api/export.md`                  | Human-readable brief, including tags, citations, and connections               |
+| GET    | `/api/export.csv`                 | Spreadsheet-safe items (no links/IDs; **not** a backup)                        |
+| GET    | `/api/template.csv`               | CSV column headers for import                                                  |
+| GET    | `/api/nodes/:id/attachments`      | `{ "attachments": [{ id, filename, size, contentType, createdAt }] }`          |
+| GET    | `/api/nodes/:id/attachments/:aid` | The PDF file (`application/pdf`)                                               |
 
 Search supports full-text ranking with prefix and fuzzy matching plus operators: `type:`, `tag:`, `status:`, `is:` (`unverified`, `contested`, `gap`), `before:`/`after:` (`YYYY-MM-DD`), and quoted phrases. An empty query returns recently updated items. Unknown filters are rejected with `400`.
 
@@ -26,22 +26,22 @@ Search supports full-text ranking with prefix and fuzzy matching plus operators:
 
 **Workspace writes require** `If-Match: <revision>`, the unquoted integer from the most recent workspace response. Body-bearing requests require `Content-Type: application/json`. Successful mutations return the **complete updated workspace**, except `/api/import/csv` (returns `{ workspace, report }`) and `/api/undo` (returns `{ workspace, undone }`). Revisions increment on successful writes, including an import of only duplicates. A preview does **not** mutate or increment the revision. Every mutation records an undo snapshot automatically.
 
-| Method | Route | JSON body | Effect |
-| --- | --- | --- | --- |
-| POST | `/api/nodes` | `{ "type": "source", "title": "...", "body": "...", "url": "...", "tags": ["..."], "citation": { "doi": "...", "authors": "...", "year": "...", "venue": "..." } }` | Add an item |
-| PATCH | `/api/nodes/:id` | Any subset of `title`, `body`, `url`, `status`, `due`, `tags`, `citation` | Update an item |
-| DELETE | `/api/nodes/:id` | none | Delete item, adjacent links, and its PDF attachments |
-| POST | `/api/links` | `{ "from": "<source-id>", "to": "<claim-id>", "kind": "supports" }` | Add a connection |
-| DELETE | `/api/links/:id` | none | Delete a connection |
-| PUT | `/api/workspace` | `{ "nodes": [...], "links": [...] }` or exported JSON | Validate and replace workspace |
-| POST | `/api/import/preview` | `{ "csv": "title,...\n..." }` | Validate and preview CSV without changes |
-| POST | `/api/import/csv` | `{ "csv": "title,...\n..." }` | Atomically add nonduplicate items |
-| POST | `/api/undo` | none | Restore the state before the last change (undoes an undo, so it redoes) |
-| POST | `/api/sample` | none | Replace with fictional example |
-| POST | `/api/projects` | `{ "name": "..." }` | Create a project (returns `201`) |
-| PATCH | `/api/projects/:id` | `{ "name": "..." }` and/or `{ "archived": true }` | Rename, archive, or restore a project |
-| POST | `/api/nodes/:id/attachments` | `{ "filename": "...pdf", "data": "<base64>" }` | Attach a PDF (no revision bump) |
-| DELETE | `/api/nodes/:id/attachments/:aid` | none | Delete a PDF attachment |
+| Method | Route                             | JSON body                                                                                                                                                           | Effect                                                                  |
+| ------ | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| POST   | `/api/nodes`                      | `{ "type": "source", "title": "...", "body": "...", "url": "...", "tags": ["..."], "citation": { "doi": "...", "authors": "...", "year": "...", "venue": "..." } }` | Add an item                                                             |
+| PATCH  | `/api/nodes/:id`                  | Any subset of `title`, `body`, `url`, `status`, `due`, `tags`, `citation`                                                                                           | Update an item                                                          |
+| DELETE | `/api/nodes/:id`                  | none                                                                                                                                                                | Delete item, adjacent links, and its PDF attachments                    |
+| POST   | `/api/links`                      | `{ "from": "<source-id>", "to": "<claim-id>", "kind": "supports" }`                                                                                                 | Add a connection                                                        |
+| DELETE | `/api/links/:id`                  | none                                                                                                                                                                | Delete a connection                                                     |
+| PUT    | `/api/workspace`                  | `{ "nodes": [...], "links": [...] }` or exported JSON                                                                                                               | Validate and replace workspace                                          |
+| POST   | `/api/import/preview`             | `{ "csv": "title,...\n..." }`                                                                                                                                       | Validate and preview CSV without changes                                |
+| POST   | `/api/import/csv`                 | `{ "csv": "title,...\n..." }`                                                                                                                                       | Atomically add nonduplicate items                                       |
+| POST   | `/api/undo`                       | none                                                                                                                                                                | Restore the state before the last change (undoes an undo, so it redoes) |
+| POST   | `/api/sample`                     | none                                                                                                                                                                | Replace with fictional example                                          |
+| POST   | `/api/projects`                   | `{ "name": "..." }`                                                                                                                                                 | Create a project (returns `201`)                                        |
+| PATCH  | `/api/projects/:id`               | `{ "name": "..." }` and/or `{ "archived": true }`                                                                                                                   | Rename, archive, or restore a project                                   |
+| POST   | `/api/nodes/:id/attachments`      | `{ "filename": "...pdf", "data": "<base64>" }`                                                                                                                      | Attach a PDF (no revision bump)                                         |
+| DELETE | `/api/nodes/:id/attachments/:aid` | none                                                                                                                                                                | Delete a PDF attachment                                                 |
 
 Attachments accept PDF files up to 15 MiB, verified by file signature. They are stored next to the workspace, outside the JSON file, so JSON backups never contain PDF bytes. Attachment routes do not use `If-Match`; the item must exist or they return `404`.
 

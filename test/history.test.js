@@ -21,7 +21,7 @@ async function workspaceWithItem(t) {
   return { before, after };
 }
 
-test('records snapshots and restores them through a validated replace', async t => {
+test('records snapshots and restores them through a validated replace', async (t) => {
   const { history } = await setup(t);
   const { before, after } = await workspaceWithItem(t);
   const meta = await history.record({ before, after, action: 'Add task' });
@@ -33,7 +33,7 @@ test('records snapshots and restores them through a validated replace', async t 
   assert.throws(() => history.get('missing'), { status: 404 });
 });
 
-test('history is bounded, survives reload, and rejects bad input', async t => {
+test('history is bounded, survives reload, and rejects bad input', async (t) => {
   const { dir, history } = await setup(t, { limit: 3 });
   const { before, after } = await workspaceWithItem(t);
   for (let index = 0; index < 5; index++) await history.record({ before, after, action: `Change ${index}` });
@@ -48,7 +48,7 @@ test('history is bounded, survives reload, and rejects bad input', async t => {
   assert.equal((await createHistory(join(dir, 'history.json')).init()).list().length, 0);
 });
 
-test('corrupt history fails closed and concurrent records stay ordered', async t => {
+test('corrupt history fails closed and concurrent records stay ordered', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'tracework-history-bad-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
   await writeFile(join(dir, 'history.json'), '{broken');
@@ -56,7 +56,7 @@ test('corrupt history fails closed and concurrent records stay ordered', async t
   await rm(join(dir, 'history.json'));
   const history = await createHistory(join(dir, 'history.json')).init();
   const { before, after } = await workspaceWithItem(t);
-  await Promise.all([0, 1, 2].map(index => history.record({ before, after, action: `Parallel ${index}` })));
+  await Promise.all([0, 1, 2].map((index) => history.record({ before, after, action: `Parallel ${index}` })));
   assert.equal(history.list().length, 3);
   const raw = JSON.parse(await readFile(join(dir, 'history.json'), 'utf8'));
   assert.equal(raw.entries.length, 3);

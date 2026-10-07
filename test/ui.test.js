@@ -4,15 +4,19 @@ import { readFile } from 'node:fs/promises';
 import { JSDOM } from 'jsdom';
 import { sampleWorkspace } from '../src/sample.js';
 
-const tick = () => new Promise(resolve => setImmediate(resolve));
+const tick = () => new Promise((resolve) => setImmediate(resolve));
 
 test('browser UI renders safely, filters tags, maps evidence, and previews CSV before import', async () => {
   const html = await readFile(new URL('../public/index.html', import.meta.url), 'utf8');
   const dom = new JSDOM(html, { url: 'http://127.0.0.1:3000/' });
   const { window } = dom;
   window.scrollTo = () => {};
-  window.HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
-  window.HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); };
+  window.HTMLDialogElement.prototype.showModal = function () {
+    this.setAttribute('open', '');
+  };
+  window.HTMLDialogElement.prototype.close = function () {
+    this.removeAttribute('open');
+  };
   globalThis.window = window;
   globalThis.document = window.document;
   globalThis.FormData = window.FormData;
@@ -23,9 +27,26 @@ test('browser UI renders safely, filters tags, maps evidence, and previews CSV b
   globalThis.fetch = async (path, options = {}) => {
     requests.push({ path, options });
     let body;
-    if (path === '/api/projects') body = { defaultId: 'default', projects: [{ id: 'default', name: 'Default', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' }] };
+    if (path === '/api/projects')
+      body = {
+        defaultId: 'default',
+        projects: [
+          {
+            id: 'default',
+            name: 'Default',
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+          },
+        ],
+      };
     else if (path === '/api/workspace') body = workspace;
-    else if (path === '/api/import/preview') body = { revision: workspace.revision, add: 1, skip: 1, entries: [{ line: 2, title: '<script>not markup</script>', type: 'source', action: 'add' }] };
+    else if (path === '/api/import/preview')
+      body = {
+        revision: workspace.revision,
+        add: 1,
+        skip: 1,
+        entries: [{ line: 2, title: '<script>not markup</script>', type: 'source', action: 'add' }],
+      };
     else if (path === '/api/import/csv') {
       workspace = { ...workspace, revision: workspace.revision + 1 };
       body = { workspace, report: { added: 1, skipped: 1 } };
@@ -33,10 +54,26 @@ test('browser UI renders safely, filters tags, maps evidence, and previews CSV b
       body = { workspace, undone: 'Add item' };
     } else if (/\/attachments$/.test(path)) {
       body = { attachments: [] };
+    } else if (path.startsWith('/api/search')) {
+      body = {
+        total: 1,
+        results: [
+          {
+            id: 't-interview',
+            type: 'task',
+            title: 'Interview reviewers',
+            snippet: 'Find what was useful',
+            score: 1,
+            tags: [],
+            projectId: 'default',
+            projectName: 'Default',
+          },
+        ],
+      };
     } else throw new Error(`Unexpected request ${path}`);
     return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
   };
-  const click = selector => window.document.querySelector(selector).click();
+  const click = (selector) => window.document.querySelector(selector).click();
   try {
     await import('../public/app.js');
     assert.equal(window.document.querySelector('[data-count="all"]').textContent, '11');
@@ -72,14 +109,26 @@ test('browser UI renders safely, filters tags, maps evidence, and previews CSV b
     click('#preview-csv');
     await tick();
     assert.equal(window.document.querySelector('#commit-csv').disabled, false);
-    assert.equal(window.document.querySelector('#csv-preview script'), null);    assert.match(window.document.querySelector('#csv-preview').textContent, /<script>not markup<\/script>/);
+    assert.equal(window.document.querySelector('#csv-preview script'), null);
+    assert.match(window.document.querySelector('#csv-preview').textContent, /<script>not markup<\/script>/);
     click('#commit-csv');
     await tick();
     assert.equal(window.document.querySelector('#csv-dialog').open, false);
     click('#undo-button');
     await tick();
     assert.match(window.document.querySelector('#sync-state').textContent, /Undid/);
-    assert.equal(requests.find(request => request.path === '/api/import/csv').options.headers['If-Match'], '0');
+    const searchBox = window.document.querySelector('#search');
+    click('[data-view="all"]');
+    searchBox.value = 'reviewers';
+    searchBox.dispatchEvent(new window.Event('input', { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 450));
+    assert.match(window.document.querySelector('#board').textContent, /Interview reviewers/);
+    assert.match(window.document.querySelector('#board').textContent, /Default/);
+    searchBox.value = '';
+    searchBox.dispatchEvent(new window.Event('input', { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 450));
+    assert.match(window.document.querySelector('#board').textContent, /Sources/);
+    assert.equal(requests.find((request) => request.path === '/api/import/csv').options.headers['If-Match'], '0');
   } finally {
     if (globalThis.__traceworkClock) clearInterval(globalThis.__traceworkClock);
     delete globalThis.__traceworkClock;

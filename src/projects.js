@@ -14,7 +14,8 @@ function projectId(id) {
 function projectName(name) {
   if (typeof name !== 'string') throw new AppError(400, 'Invalid project name');
   const clean = name.trim();
-  if (!clean || clean.length > 100 || /[\x00-\x1f\x7f]/.test(clean)) throw new AppError(400, 'Project name must be 1-100 characters without control characters');
+  if (!clean || clean.length > 100 || /[\x00-\x1f\x7f]/.test(clean))
+    throw new AppError(400, 'Project name must be 1-100 characters without control characters');
   return clean;
 }
 
@@ -23,16 +24,31 @@ function validTimestamp(value) {
 }
 
 function loadIndex(input) {
-  if (!input || typeof input !== 'object' || Array.isArray(input) ||
-      Object.keys(input).some(key => key !== 'projects') || !Array.isArray(input.projects)) throw new Error('Invalid project index');
+  if (
+    !input ||
+    typeof input !== 'object' ||
+    Array.isArray(input) ||
+    Object.keys(input).some((key) => key !== 'projects') ||
+    !Array.isArray(input.projects)
+  )
+    throw new Error('Invalid project index');
   const seen = new Set();
   for (const project of input.projects) {
-    if (!project || typeof project !== 'object' || Array.isArray(project) ||
-        Object.keys(project).some(key => !['id', 'name', 'createdAt', 'updatedAt', 'archived'].includes(key)) ||
-        typeof project.id !== 'string' || (project.id !== DEFAULT_ID && !UUID.test(project.id)) || seen.has(project.id) ||
-        typeof project.name !== 'string' || projectName(project.name) !== project.name ||
-        !validTimestamp(project.createdAt) || !validTimestamp(project.updatedAt) ||
-        (project.archived !== undefined && typeof project.archived !== 'boolean')) throw new Error('Invalid project index');
+    if (
+      !project ||
+      typeof project !== 'object' ||
+      Array.isArray(project) ||
+      Object.keys(project).some((key) => !['id', 'name', 'createdAt', 'updatedAt', 'archived'].includes(key)) ||
+      typeof project.id !== 'string' ||
+      (project.id !== DEFAULT_ID && !UUID.test(project.id)) ||
+      seen.has(project.id) ||
+      typeof project.name !== 'string' ||
+      projectName(project.name) !== project.name ||
+      !validTimestamp(project.createdAt) ||
+      !validTimestamp(project.updatedAt) ||
+      (project.archived !== undefined && typeof project.archived !== 'boolean')
+    )
+      throw new Error('Invalid project index');
     seen.add(project.id);
   }
   if (!seen.has(DEFAULT_ID)) throw new Error('Project index is missing the default project');
@@ -55,7 +71,11 @@ async function persistIndex(file, projects) {
     await rename(temporary, file);
     // On systems that support directory sync, also make the rename durable.
     const directory = await open(dir, 'r');
-    try { await directory.sync(); } finally { await directory.close(); }
+    try {
+      await directory.sync();
+    } finally {
+      await directory.close();
+    }
   } catch (error) {
     if (handle) await handle.close().catch(() => {});
     await unlink(temporary).catch(() => {});
@@ -89,7 +109,7 @@ export async function createProjectManager({ dataFile, initial } = {}) {
   }
   function find(id) {
     projectId(id);
-    const project = projects.find(item => item.id === id);
+    const project = projects.find((item) => item.id === id);
     if (!project) throw new AppError(404, 'Project not found');
     return project;
   }
@@ -99,7 +119,9 @@ export async function createProjectManager({ dataFile, initial } = {}) {
       const file = id === DEFAULT_ID ? workspaceFile : join(projectDir, `${id}.json`);
       const pending = (id === DEFAULT_ID ? createStore(file, initial) : createStore(file)).init();
       stores.set(id, pending);
-      pending.catch(() => { if (stores.get(id) === pending) stores.delete(id); });
+      pending.catch(() => {
+        if (stores.get(id) === pending) stores.delete(id);
+      });
     }
     return stores.get(id);
   }
@@ -107,7 +129,7 @@ export async function createProjectManager({ dataFile, initial } = {}) {
     return enqueue(async () => {
       const project = find(id);
       const next = { ...project, ...update, updatedAt: new Date().toISOString() };
-      const updated = projects.map(item => item.id === id ? next : item);
+      const updated = projects.map((item) => (item.id === id ? next : item));
       await persistIndex(indexFile, updated);
       projects = updated;
       return { ...next };
@@ -120,7 +142,9 @@ export async function createProjectManager({ dataFile, initial } = {}) {
       find(id);
       return id === DEFAULT_ID ? workspaceFile : join(projectDir, `${id}.json`);
     },
-    list() { return projects.map(project => ({ ...project })); },
+    list() {
+      return projects.map((project) => ({ ...project }));
+    },
     getStore,
     async create(name) {
       const clean = projectName(name);
@@ -139,7 +163,9 @@ export async function createProjectManager({ dataFile, initial } = {}) {
         return { ...project };
       });
     },
-    rename(id, name) { return change(id, { name: projectName(name) }); },
+    rename(id, name) {
+      return change(id, { name: projectName(name) });
+    },
     archive(id, archived = true) {
       if (typeof archived !== 'boolean') return Promise.reject(new AppError(400, 'Invalid archived flag'));
       return change(id, { archived });

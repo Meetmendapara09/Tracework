@@ -15,17 +15,39 @@ test('ranks title matches above body matches and supports prefixes', () => {
 test('filters by type, tag, status, evidence state, and dates', () => {
   const workspace = sampleWorkspace();
   const search = createSearchIndex(workspace);
-  assert.ok(search.search('pilot type:claim').results.every(result => result.type === 'claim'));
+  assert.ok(search.search('pilot type:claim').results.every((result) => result.type === 'claim'));
   const tagged = search.search('tag:pilot');
   assert.ok(tagged.total >= 3);
-  assert.ok(tagged.results.every(result => result.snippet !== undefined));
+  assert.ok(tagged.results.every((result) => result.snippet !== undefined));
   const contested = search.search('is:contested');
-  assert.ok(contested.results.some(result => result.title.includes('slowing')));
+  assert.ok(contested.results.some((result) => result.title.includes('slowing')));
   const gappy = {
     revision: 0,
     nodes: [
-      { id: 'c1', type: 'claim', title: 'Lonely hypothesis', body: 'no sources yet', url: '', due: '', tags: [], status: 'open', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-02T00:00:00.000Z' },
-      { id: 'd1', type: 'decision', title: 'Ungrounded choice', body: '', url: '', due: '', tags: [], status: 'proposed', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-03T00:00:00.000Z' },
+      {
+        id: 'c1',
+        type: 'claim',
+        title: 'Lonely hypothesis',
+        body: 'no sources yet',
+        url: '',
+        due: '',
+        tags: [],
+        status: 'open',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-02T00:00:00.000Z',
+      },
+      {
+        id: 'd1',
+        type: 'decision',
+        title: 'Ungrounded choice',
+        body: '',
+        url: '',
+        due: '',
+        tags: [],
+        status: 'proposed',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-03T00:00:00.000Z',
+      },
     ],
     links: [],
   };
@@ -40,7 +62,13 @@ test('filters by type, tag, status, evidence state, and dates', () => {
 test('quoted phrases use AND semantics and empty query lists recent items', () => {
   const search = createSearchIndex(sampleWorkspace());
   const phrase = search.search('"project reviews"');
-  assert.ok(phrase.results.every(result => result.title.toLowerCase().includes('project reviews') || result.snippet.toLowerCase().includes('project reviews')));
+  assert.ok(
+    phrase.results.every(
+      (result) =>
+        result.title.toLowerCase().includes('project reviews') ||
+        result.snippet.toLowerCase().includes('project reviews'),
+    ),
+  );
   assert.equal(search.search('"no such phrase anywhere"').total, 0);
   const empty = search.search('   ');
   assert.equal(empty.total, sampleWorkspace().nodes.length);

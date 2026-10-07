@@ -1,7 +1,7 @@
 ---
 name: Feature request
 about: Suggest an idea or improvement for Tracework
-title: "[feature] "
+title: '[feature] '
 labels: enhancement
 ---
 

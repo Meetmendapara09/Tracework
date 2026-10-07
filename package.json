@@ -8,7 +8,10 @@
     "start": "node server.js",
     "dev": "node --watch server.js",
     "test": "node --test",
-    "check": "node --check server.js && node --check src/core.js && node --check src/csv.js && node --check src/history.js && node --check src/search.js && node --check public/app.js && npm test"
+    "check": "npm run format:check && node --check server.js && node --check mcp-server.js && node --check src/core.js && node --check src/csv.js && node --check src/history.js && node --check src/search.js && node --check public/app.js && npm test",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "mcp": "node mcp-server.js"
   },
   "engines": {
     "node": ">=20"
@@ -20,6 +23,7 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "jsdom": "26.1.0"
+    "jsdom": "26.1.0",
+    "prettier": "3.6.2"
   }
 }

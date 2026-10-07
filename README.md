@@ -1,12 +1,12 @@
 # Tracework
 
-**Make the thinking visible.** Tracework is a local-first evidence-to-action desk for research, project planning, investigations, design reviews, and any work where the *why* matters as much as the *what*. Collect sources, develop claims, record decisions, and follow through on tasks in one connected trail.
+**Make the thinking visible.** Tracework is a local-first evidence-to-action desk for research, project planning, investigations, design reviews, and any work where the _why_ matters as much as the _what_. Collect sources, develop claims, record decisions, and follow through on tasks in one connected trail.
 
 Your workspace is a JSON file on your machine. There is no account, API key, database server, build step, telemetry, or external asset/CDN. A few established libraries handle schema validation, CSV parsing, and CSV generation rather than reimplementing those error-prone jobs.
 
 ## What you can do
 
-- **Trace reasoning:** sources *support* or *challenge* claims; claims *inform* decisions; decisions *advance* tasks. Open any card to navigate connections in both directions.
+- **Trace reasoning:** sources _support_ or _challenge_ claims; claims _inform_ decisions; decisions _advance_ tasks. Open any card to navigate connections in both directions.
 - **Review evidence:** the dashboard and **Review queue** surface unsupported or contested claims and decisions that need another look. The **Evidence matrix** shows sources against claims, with support, challenge, or both in each cell. Counterevidence is never averaged away.
 - **Organize across projects:** keep separate workspaces per investigation with a sidebar switcher; rename or archive projects without losing data. Inside a project, tag items, filter by tag, and track task statuses and due dates. The header clock and per-item timestamps keep time visible.
 - **Cite properly:** record DOI, authors, year, and venue on sources; citations appear in the inspector, the Markdown brief, and CSV round trips. Attach the actual PDF (up to 15 MiB) to a source for local reference.
@@ -46,7 +46,7 @@ PORT=4173 TRACEWORK_DATA="$HOME/research/tracework.json" npm start
 ### A five-minute workflow
 
 1. Create a **source** (paper, interview, observation, artifact, or URL) and record the relevant passage and citation context in its notes. URLs are stored, not fetched.
-2. Create a **claim**; connect sources as *supports* or *challenges*. Open the **Evidence matrix** to compare all linked sources at a glance.
+2. Create a **claim**; connect sources as _supports_ or _challenges_. Open the **Evidence matrix** to compare all linked sources at a glance.
 3. Create a **decision** and connect the claims that informed it. Its evidence indicator updates automatically.
 4. Add a **task**, connect it to the decision, and track its status. Tag related work across all four stages.
 5. Share a **Markdown brief**, export a **CSV** for a spreadsheet, or create a **JSON backup** to move or restore editable work.
@@ -81,10 +81,12 @@ task,Schedule follow-up,"Talk to the team",,todo,2027-01-15,Pilot,,,,
 ```bash
 npm ci
 npm run dev    # restart server when server code changes
-npm run check  # syntax checks + domain, API and browser-DOM tests
+npm run check  # format check + syntax checks + domain, API and browser-DOM tests
+npm run format # apply the shared Prettier style
+npm run mcp    # stdio MCP server for coding agents (set TRACEWORK_DATA first)
 ```
 
-Node's test runner, temporary directories, and jsdom power the test suite; no external service is required. The Docker image runs as a non-root user with a read-only root filesystem and writes only to its data volume. See [docs/architecture.md](docs/architecture.md) for graph rules and operational trade-offs, and [docs/api.md](docs/api.md) for automation.
+Node's test runner, temporary directories, and jsdom power the test suite; no external service is required. Prettier (with `.editorconfig` defaults) keeps formatting consistent; CI fails on unformatted files. The Docker image runs as a non-root user with a read-only root filesystem and writes only to its data volume. See [docs/architecture.md](docs/architecture.md) for graph rules and operational trade-offs, [docs/api.md](docs/api.md) for automation, [docs/automation.md](docs/automation.md) for scripts and coding agents, and [AGENTS.md](AGENTS.md) for contributor conventions.
 
 ## Scope
 
