@@ -9,6 +9,12 @@
 
 Your workspace is a JSON file on your machine. There is no account, API key, database server, build step, telemetry, or external asset/CDN. A few established libraries handle schema validation, CSV parsing, and CSV generation rather than reimplementing those error-prone jobs.
 
+## Screenshots
+
+![Tracework overview: metrics, evidence lanes, and an open item with connections and PDF attachments](docs/screenshot-overview.png)
+
+![Tracework evidence matrix comparing sources against claims](docs/screenshot-matrix.png)
+
 ## What you can do
 
 - **Trace reasoning:** sources _support_ or _challenge_ claims; claims _inform_ decisions; decisions _advance_ tasks. Open any card to navigate connections in both directions.
