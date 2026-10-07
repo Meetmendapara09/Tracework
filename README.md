@@ -1,64 +1,91 @@
 # Tracework
 
-**Make the thinking visible.** Tracework is a local-first evidence-to-action desk for research, project planning, investigations, design reviews, and other work where the *why* matters as much as the *what*. Collect sources, develop claims, record decisions, and follow through on tasks in one connected trail.
+**Make the thinking visible.** Tracework is a local-first evidence-to-action desk for research, project planning, investigations, design reviews, and any work where the *why* matters as much as the *what*. Collect sources, develop claims, record decisions, and follow through on tasks in one connected trail.
 
-No account, API key, database server, build step, external assets, or runtime dependencies. Your workspace is a JSON file on your own machine.
+Your workspace is a JSON file on your machine. There is no account, API key, database server, build step, telemetry, or external asset/CDN. A few established libraries handle schema validation, CSV parsing, and CSV generation rather than reimplementing those error-prone jobs.
 
-## What makes it useful
+## What you can do
 
-- **Follow an explicit trail:** sources **support** or **challenge** claims; claims **inform** decisions; decisions **advance** tasks. Open any card to navigate its connections in either direction.
-- **Spot weak reasoning:** the dashboard flags claims without supporting sources and contested claims. A dedicated **Review queue** collects those claims and decisions with missing or disputed evidence. A challenge is intentionally not averaged away by a supporting source.
-- **Work through the whole lifecycle:** search, sort, create, edit, connect, review, and track status/due dates in a responsive workspace.
-- **Take your work with you:** export a readable Markdown brief or a complete JSON backup; import a backup to restore or move your workspace. Both include the full evidence graph. The brief is a snapshot; JSON is the round-trippable format.
-- **Start with an example:** a clearly fictional project-review scenario is included on first launch. Replace it with a blank workspace using the footer action; load the example again from an empty workspace.
+- **Trace reasoning:** sources *support* or *challenge* claims; claims *inform* decisions; decisions *advance* tasks. Open any card to navigate connections in both directions.
+- **Review evidence:** the dashboard and **Review queue** surface unsupported or contested claims and decisions that need another look. The **Evidence matrix** shows sources against claims, with support, challenge, or both in each cell. Counterevidence is never averaged away.
+- **Organize across projects:** add up to 12 tags per item; search and filter by tag, status, title, or notes. Manage task statuses and due dates.
+- **Bring existing work in:** paste or upload CSV from a spreadsheet or reference list. Preview what will be added or skipped; duplicate URLs and titles are detected, and invalid rows cannot partly import. A downloadable template makes the columns clear.
+- **Take work out:** export a Markdown research brief, a spreadsheet-friendly CSV of items, or a complete JSON workspace backup. **Only JSON preserves IDs and connections** and can restore the workspace exactly.
+- **Explore safely:** first launch uses a clearly fictional example. Use “Start a blank workspace” when ready.
 
-> **Important:** Evidence labels are structural cues, not scientific confidence estimates or automated fact checks. Tracework counts linked sources; it cannot determine whether a source is trustworthy or a conclusion is true.
+> **Evidence labels are prompts for human review, not scientific confidence scores or automated fact checks.** Tracework counts relationships; it cannot assess source quality or determine whether a claim is true.
 
 ## Quick start
 
-Requires **Node.js 20+**. No install is necessary to run the app:
+**Option A — Node.js 20+** (recommended for development):
 
 ```bash
-node server.js
+npm ci
+npm start
 # Open http://127.0.0.1:3000
 ```
 
-Or run `npm start`. To use a different port or location for the data file:
+**Option B — Docker Compose** (no Node installation needed):
+
+```bash
+docker compose up -d --build
+# Open http://127.0.0.1:3000
+# Stop with: docker compose down  (your named data volume is retained)
+```
+
+Both options keep the web server accessible only from your machine by default. Docker Compose stores data in a named volume; use the **Backup workspace** button to save a portable copy before removing volumes. **Do not run `docker compose down -v` unless you intend to erase that volume.** For Node, the example workspace is created at `data/workspace.json` (gitignored). To choose a different location or port:
 
 ```bash
 PORT=4173 TRACEWORK_DATA="$HOME/research/tracework.json" npm start
 ```
 
-`HOST` defaults to `127.0.0.1` (only your machine). Set `HOST=0.0.0.0` **only** on a trusted network behind your own authentication and TLS reverse proxy. Tracework itself has **no authentication** and is not intended to be exposed to the public internet. The example workspace is created at `data/workspace.json` on first launch. This directory is gitignored.
+`HOST` defaults to `127.0.0.1`. Do **not** expose the server publicly: it has **no authentication**. Setting `HOST=0.0.0.0` should only be done behind an authentication and TLS reverse proxy on a trusted network. Docker listens inside its container on `0.0.0.0`, but Compose publishes it to **host loopback only** (`127.0.0.1`).
 
 ### A five-minute workflow
 
-1. Create a **source** (a paper, interview, observation, URL, or other reference). Put the relevant passage and citation details in its notes; Tracework stores the URL but does not scrape external pages.
-2. Add a **claim** and connect the source as *supports* or *challenges*. An unsupported claim appears as an evidence gap; counterevidence remains visible.
-3. Add a **decision**, connect the claims that informed it, and record the reasoning. Its evidence indicator updates with the connected claims.
-4. Add a **task**, connect it to the decision, and mark progress with its status.
-5. Export a **Markdown brief** to share the reasoning, or **JSON** to back up the editable workspace.
+1. Create a **source** (paper, interview, observation, artifact, or URL) and record the relevant passage and citation context in its notes. URLs are stored, not fetched.
+2. Create a **claim**; connect sources as *supports* or *challenges*. Open the **Evidence matrix** to compare all linked sources at a glance.
+3. Create a **decision** and connect the claims that informed it. Its evidence indicator updates automatically.
+4. Add a **task**, connect it to the decision, and track its status. Tag related work across all four stages.
+5. Share a **Markdown brief**, export a **CSV** for a spreadsheet, or create a **JSON backup** to move or restore editable work.
 
-Press **N** to create an item in the current view, **/** to search, and **Esc** to close the inspector. On a narrow screen, selecting an item opens its inspector as a full-width panel.
+Press **N** to create an item in the current view, **/** to search, and **Esc** to close the inspector. On a narrow screen the inspector becomes a full-width panel.
 
-## Data and reliability
+### Import a CSV
 
-- Files are written to a temporary file in the same directory and atomically renamed, so a failed write does not partially overwrite the previous workspace. Writes are serialized in-process and checked against a monotonically increasing revision. If another tab changed the workspace, the UI reloads the latest revision and asks you to retry. Deleting an item also deletes its connections.
-- Import validates IDs, types, fields, dates, URLs, link direction, references, and duplicates *before* replacing anything. Invalid imports leave the workspace unchanged. Request size is limited to 32 MiB; the workspace is limited to 2,000 items and 6,000 connections.
-- Changes are persisted on the server after each action, not in browser localStorage. JSON backup is still recommended before resets, imports, major edits, or upgrades. The app is designed for a **single local process** and a **single workspace file**. Do not run multiple Tracework servers against the same file; process-local serialization cannot coordinate them.
-- The interface escapes user content, restricts source links to HTTP(S), does not load external resources, sets a restrictive Content Security Policy, does not enable CORS, checks cross-origin writes, and serves only an explicit list of static assets. These controls do not replace authentication when the server is made remotely reachable.
-- The data file is plain JSON and can contain sensitive research. Protect it with your OS permissions and backups. The server creates new data files with owner-only permissions; existing file permissions are not changed. Exported files are controlled by your browser/download directory.
+Click **Import CSV**, select a file or paste text, then **Preview changes**. Only after previewing can you **Import items**. Download a template from the dialog or use:
+
+```csv
+type,title,body,url,status,due,tags
+source,"Interview, participant 1","Context and excerpt",https://example.org,,,Fieldwork|Pilot
+claim,Context is hard to recover,"Working hypothesis",,open,,Pilot
+task,Schedule follow-up,"Talk to the team",,todo,2027-01-15,Pilot
+```
+
+- `title` is required. `type` defaults to `source` and can be `source`, `claim`, `decision`, or `task`. `notes` is accepted instead of `body`. Tags in CSV are separated by `|`; in the item form, separate tags with commas. Dates use `YYYY-MM-DD`.
+- Up to **500 rows / 8 MiB** per import. Sources are deduplicated by normalized URL when one is present, otherwise by case-insensitive title; other types use case-insensitive title. Duplicate rows are skipped, not overwritten. A different URL can have the same source title. If any row is invalid, **nothing** from that file is imported.
+- CSV exports contain items, **not connections or stable IDs**. To move a complete trail, use the JSON backup. Potential spreadsheet formulas are prefixed with an apostrophe in CSV exports to prevent execution; JSON and Markdown retain the original text.
+
+## Data, safety, and reliability
+
+- Writes are serialized in-process, revision-checked, written to a temporary file, then atomically renamed. A stale tab reloads the current revision rather than overwriting it. Deleting an item removes its links. A CSV preview is recalculated at commit time against the actual revision.
+- Imports validate IDs, types, tags, dates, URLs, relationships, references, and duplicates. Old JSON backups without tags are accepted and upgraded in memory. Bad or corrupted saved data is **not** silently reset on startup. Request bodies are capped at 32 MiB, with at most 2,000 items and 6,000 connections per workspace.
+- Work is persisted after every action; it is **not** stored in browser localStorage. Still back up the JSON before resets, imports, major edits, or upgrades. Use **one server process per data file**; the process-local queue cannot coordinate multiple servers.
+- The UI escapes user text; source links must be HTTP(S); the server serves an explicit static-file allowlist, restricts cross-origin writes and loopback Host headers, and sets a strict Content Security Policy. These measures do **not** replace authentication if you expose the server remotely.
+- The data file can contain sensitive research. Protect it with OS permissions and backups. New data files are created owner-only; existing file permissions are not modified. Exports are controlled by your browser/download directory.
 
 ## Development
 
 ```bash
-npm ci        # optional; verifies the lockfile (there are no runtime packages)
-npm run dev   # restart server when source files change
-npm run check # syntax checks + unit and HTTP integration tests
+npm ci
+npm run dev    # restart server when server code changes
+npm run check  # syntax checks + domain, API and browser-DOM tests
 ```
 
-The tests use Node's built-in test runner and isolated temporary directories. No external services are needed. See [docs/architecture.md](docs/architecture.md) for the data model, invariants, and operational notes, and [docs/api.md](docs/api.md) for the HTTP API.
+Node's test runner, temporary directories, and jsdom power the test suite; no external service is required. The Docker image runs as a non-root user with a read-only root filesystem and writes only to its data volume. See [docs/architecture.md](docs/architecture.md) for graph rules and operational trade-offs, and [docs/api.md](docs/api.md) for automation.
 
 ## Scope
 
-Tracework is intentionally a small, inspectable, single-user tool. It does **not** claim to verify sources, offer real-time multi-user collaboration, synchronize devices, or protect data on an exposed public server. Those would require identity, authorization, conflict resolution, and a different storage architecture. The workspace is nevertheless portable: JSON is human-readable and its shape is documented.
+Tracework is intentionally a single-user, inspectable tool. It does **not** verify sources, provide real-time collaboration or device sync, or protect a publicly exposed server. Those require identity, authorization, conflict resolution, and a different storage architecture. JSON remains the portable, documented format for complete workspaces.
+
+MIT licensed. See [LICENSE](LICENSE).

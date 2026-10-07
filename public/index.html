@@ -23,12 +23,15 @@
         <button class="nav-item" data-view="decision"><span class="nav-glyph">◈</span> Decisions <span class="nav-count" data-count="decision"></span></button>
         <button class="nav-item" data-view="task"><span class="nav-glyph">☑</span> Tasks <span class="nav-count" data-count="task"></span></button>
         <button class="nav-item review-nav" data-view="review"><span class="nav-glyph">◐</span> Review queue <span class="nav-count" data-count="review"></span></button>
+        <button class="nav-item" data-view="matrix"><span class="nav-glyph">▤</span> Evidence matrix</button>
       </nav>
       <div class="side-section-label tools-label">YOUR DATA</div>
       <div class="side-tools">
         <a href="/api/export.md" class="side-link"><span>↧</span> Export brief <span class="side-hint">.md</span></a>
         <a href="/api/export.json" class="side-link"><span>↧</span> Backup workspace <span class="side-hint">.json</span></a>
-        <button id="import-button" class="side-link"><span>↥</span> Import backup</button>
+        <a href="/api/export.csv" class="side-link"><span>↧</span> Export items <span class="side-hint">.csv</span></a>
+        <button id="csv-button" class="side-link"><span>↥</span> Import CSV</button>
+        <button id="import-button" class="side-link"><span>↥</span> Restore backup</button>
         <input type="file" id="import-file" accept="application/json,.json" hidden>
       </div>
       <div class="sidebar-bottom">
@@ -49,7 +52,7 @@
           <div class="edition">RESEARCH DESK <span> / </span> 001</div>
         </div>
         <section class="metrics" aria-label="Workspace summary" id="metrics"></section>
-        <div class="section-head"><div><div class="section-kicker">THE EVIDENCE TRAIL</div><h2 id="board-title">Your work, connected <span id="result-count"></span></h2></div><div class="board-controls"><label class="search-box"><span aria-hidden="true">⌕</span><span class="sr-only">Search items</span><input id="search" type="search" placeholder="Search the workspace" autocomplete="off"><kbd>/</kbd></label><select id="sort" aria-label="Sort items"><option value="recent">Recently updated</option><option value="title">A to Z</option><option value="oldest">Oldest first</option></select></div></div>
+        <div class="section-head"><div><div class="section-kicker">THE EVIDENCE TRAIL</div><h2 id="board-title">Your work, connected <span id="result-count"></span></h2></div><div class="board-controls"><label class="search-box"><span aria-hidden="true">⌕</span><span class="sr-only">Search items</span><input id="search" type="search" placeholder="Search the workspace" autocomplete="off"><kbd>/</kbd></label><select id="tag-filter" aria-label="Filter by tag"><option value="">All tags</option></select><select id="sort" aria-label="Sort items"><option value="recent">Recently updated</option><option value="title">A to Z</option><option value="oldest">Oldest first</option></select></div></div>
         <div class="trail-guide" aria-label="Workflow stages"><span><i class="stage-dot source-dot"></i> Collect</span><b>→</b><span><i class="stage-dot claim-dot"></i> Interpret</span><b>→</b><span><i class="stage-dot decision-dot"></i> Decide</span><b>→</b><span><i class="stage-dot task-dot"></i> Act</span><span class="guide-note">SELECT A CARD TO EXPLORE ITS CONNECTIONS</span></div>
         <section class="board" id="board" aria-label="Evidence trail"></section>
         <footer class="main-footer"><span>TRACEWORK / A SMALL SPACE FOR BIG QUESTIONS</span><button id="reset-button">Start a blank workspace ↗</button></footer>
@@ -65,11 +68,21 @@
       <label class="field">What kind of item?<select id="field-type" name="type"><option value="source">Source — something you observed</option><option value="claim">Claim — something you believe</option><option value="decision">Decision — something you chose</option><option value="task">Task — something to do</option></select></label>
       <label class="field">Title<input name="title" maxlength="160" required placeholder="Give it a clear, specific name"></label>
       <label class="field">Notes <span class="field-optional">optional</span><textarea name="body" rows="5" maxlength="10000" placeholder="Context, reasoning, excerpts, or a next step..."></textarea></label>
+      <label class="field">Tags <span class="field-optional">optional · comma separated, up to 12</span><input name="tags" maxlength="512" placeholder="e.g. Literature review, Sprint 3"></label>
       <label class="field source-field">Source URL <span class="field-optional">optional</span><input name="url" type="url" maxlength="2048" placeholder="https://..."></label>
       <label class="field status-field">Status<select name="status" id="field-status"></select></label>
       <label class="field task-field">Due date <span class="field-optional">optional</span><input name="due" type="date"></label>
       <div class="dialog-actions"><button type="button" id="cancel-dialog" class="secondary-button">Cancel</button><button class="primary-button" type="submit" id="submit-item">Create item <span>↗</span></button></div>
     </form>
+  </dialog>
+  <dialog id="csv-dialog" aria-labelledby="csv-title">
+    <div class="dialog-heading"><div><div class="section-kicker">BRING YOUR WORK IN</div><h2 id="csv-title">Import a spreadsheet</h2></div><button type="button" class="icon-button" id="close-csv" aria-label="Close">✕</button></div>
+    <p class="csv-intro">Import sources, claims, decisions, or tasks from a CSV. Preview duplicates and errors before saving. Nothing is replaced.</p>
+    <label class="field">Choose a CSV file<input id="csv-file" type="file" accept=".csv,text/csv"></label>
+    <label class="field">Or paste CSV <span class="field-optional">first row must contain column names</span><textarea id="csv-text" rows="6" spellcheck="false" placeholder="type,title,body,url,status,due,tags&#10;source,Interview notes,What we learned,,,,Research|Phase 1"></textarea></label>
+    <div class="csv-help">Required: <strong>title</strong>. Optional: type, body (or notes), url, status, due, tags (separate tags with |). Blank type means source. <a href="/api/template.csv">Download template ↗</a></div>
+    <div id="csv-preview" class="csv-preview" role="status" aria-live="polite">Choose a file or paste CSV, then preview the changes.</div>
+    <div class="dialog-actions"><button type="button" id="preview-csv" class="secondary-button">Preview changes</button><button type="button" id="commit-csv" class="primary-button" disabled>Import items ↗</button></div>
   </dialog>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 </body>

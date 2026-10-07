@@ -1,0 +1,10 @@
+node_modules
+.git
+.github
+data
+coverage
+*.tmp
+.env
+test
+README.md
+docs

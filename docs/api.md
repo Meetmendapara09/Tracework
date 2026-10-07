@@ -1,50 +1,62 @@
 # HTTP API (v1)
 
-The API is for the local web client and scripts on the **same trusted machine**, not a remotely exposed service. Base URL: `http://127.0.0.1:3000`. All routes return JSON except the static app and the Markdown export. No CORS is enabled. Mutating requests with an `Origin` header from another origin are rejected.
+The API is for the local web client and scripts on the **same trusted machine**, not a remotely exposed service. Base URL: `http://127.0.0.1:3000`. All routes return JSON except the static app and Markdown/CSV downloads. No CORS is enabled; writes with a foreign `Origin` are rejected.
 
-## Reads
+## Reads and downloads
 
 | Method | Route | Response |
 | --- | --- | --- |
 | GET | `/api/health` | `{ "ok": true }` |
 | GET | `/api/workspace` | Complete `{ revision, nodes, links }` |
-| GET | `/api/export.json` | Complete workspace JSON with download header |
-| GET | `/api/export.md` | Human-readable brief with download header |
+| GET | `/api/export.json` | Complete workspace JSON (restorable) |
+| GET | `/api/export.md` | Human-readable brief, including tags and connections |
+| GET | `/api/export.csv` | Spreadsheet-safe items (no links/IDs; **not** a backup) |
+| GET | `/api/template.csv` | CSV column headers for import |
 
-## Writes
+## Writes and preview
 
-**All writes require** `If-Match: <revision>`, where `<revision>` is the unquoted integer returned by the most recent workspace read/write. Requests with bodies also require `Content-Type: application/json`. Every successful write returns the **complete, updated** workspace JSON with an incremented revision. Even deletes use the revision header.
+**All POST/PATCH/PUT/DELETE requests require** `If-Match: <revision>`, the unquoted integer from the most recent workspace response. Body-bearing requests require `Content-Type: application/json`. Successful mutations return the **complete updated workspace**, except `/api/import/csv`, which returns `{ workspace, report: { added, skipped } }`. Revisions increment on successful writes, including an import of only duplicates. A preview does **not** mutate or increment the revision.
 
 | Method | Route | JSON body | Effect |
 | --- | --- | --- | --- |
-| POST | `/api/nodes` | `{ "type": "source", "title": "...", "body": "...", "url": "..." }` | Add an item |
-| PATCH | `/api/nodes/:id` | Any subset of editable fields (`title`, `body`, `url`, `status`, `due`) | Update an item |
+| POST | `/api/nodes` | `{ "type": "source", "title": "...", "body": "...", "url": "...", "tags": ["..."] }` | Add an item |
+| PATCH | `/api/nodes/:id` | Any subset of `title`, `body`, `url`, `status`, `due`, `tags` | Update an item |
 | DELETE | `/api/nodes/:id` | none | Delete item and adjacent links |
 | POST | `/api/links` | `{ "from": "<source-id>", "to": "<claim-id>", "kind": "supports" }` | Add a connection |
 | DELETE | `/api/links/:id` | none | Delete a connection |
-| PUT | `/api/workspace` | `{ "nodes": [...], "links": [...] }` or an exported JSON workspace | Validate and replace the workspace |
-| POST | `/api/sample` | none | Replace with fictional demonstration workspace |
+| PUT | `/api/workspace` | `{ "nodes": [...], "links": [...] }` or exported JSON | Validate and replace workspace |
+| POST | `/api/import/preview` | `{ "csv": "title,...\n..." }` | Validate and preview CSV without changes |
+| POST | `/api/import/csv` | `{ "csv": "title,...\n..." }` | Atomically add nonduplicate items |
+| POST | `/api/sample` | none | Replace with fictional example |
 
-New items require `type` and a nonempty `title`; `body` defaults to `""`, `status` defaults by type, `url` and `due` default to `""`. The server assigns IDs and timestamps. `type`, IDs, and timestamps cannot be edited. Title max length: 160 characters; notes: 10,000; URL: 2,048. See [architecture.md](architecture.md) for statuses and legal link directions.
+Preview returns `{ revision, add, skip, entries }`, with each entry `{ line, title, type, action, reason? }`. A CSV commit recomputes duplicates against the exact revision it writes. If another tab changes the workspace, it returns `409` rather than silently importing into a different state.
 
-### Example: add a source and connect it to a claim
+New items require `type` and a nonempty `title`. `body` defaults to `""`; `status` defaults by type; `url`/`due` default to `""`; `tags` defaults to `[]`. The server assigns IDs and ISO timestamps. `type`, IDs, and timestamps cannot be edited. Title max length: 160 characters; notes: 10,000; URL: 2,048; tags: 12 per item, each 1–32 characters. Tag values are case-preserving but unique case-insensitively and cannot contain `,` or `|` (CSV delimiters). See [architecture.md](architecture.md) for statuses and legal link directions. Older JSON backups without tags remain valid.
+
+### CSV format
+
+The first row contains column names: `type,title,body,url,status,due,tags`. `title` is mandatory; all other columns optional. `notes` may replace `body`. Blank `type` means `source`; case-insensitive types and statuses are accepted. Tags use `|` within a CSV cell. Quoted cells may contain commas and newlines. Max **500 data rows / 8 MiB** per import. The entire import fails on any invalid row, with no partial saves. Existing sources are matched by normalized HTTP(S) URL when present, otherwise title; other types by case-insensitive title. Duplicate rows are skipped, not overwritten. Links are not generated by CSV.
+
+CSV exports prefix cells beginning with a spreadsheet-formula trigger (`=`, `+`, `-`, `@`, or leading whitespace followed by one) with an apostrophe. **This can alter text if re-imported**; use JSON for lossless backups.
+
+### Example: add a source
 
 ```bash
 curl -s http://127.0.0.1:3000/api/workspace
 # Read revision (say 0); after each write, use the NEW revision from its response.
 curl -s -X POST http://127.0.0.1:3000/api/nodes \
   -H 'Content-Type: application/json' -H 'If-Match: 0' \
-  -d '{"type":"source","title":"Field notes","body":"Observation and context"}'
+  -d '{"type":"source","title":"Field notes","body":"Observation and context","tags":["Pilot"]}'
 ```
 
-Use the returned source `id` and `revision` to create a claim, then the two IDs and the next revision to create a `supports` link. A stale revision never silently overwrites somebody else's changes.
+Use the returned ID and revision to create a claim, then connect the source to that claim as `supports` or `challenges`. A stale revision never silently overwrites another tab's changes.
 
 ## Errors and limits
 
 Errors have the shape `{ "error": "human-readable message" }`:
 
-- `400` malformed fields, invalid JSON, invalid import/graph, or full workspace
-- `403` cross-origin write
+- `400` malformed fields/CSV/JSON, invalid graph, or size/count limit
+- `403` cross-origin write or invalid loopback Host header
 - `404` unknown route or ID
 - `409` stale revision or duplicate connection
 - `413` request body exceeds 32 MiB
@@ -52,4 +64,4 @@ Errors have the shape `{ "error": "human-readable message" }`:
 - `428` missing/invalid `If-Match`
 - `500` unexpected server/storage error (details logged server-side)
 
-An import failure leaves the existing workspace unchanged. A replacement increments the server's revision; the revision in an imported backup is informational and is **not** reused.
+A failed import leaves the existing workspace unchanged. A JSON replacement increments the server's revision; the revision in the imported backup is informational and is **not** reused.

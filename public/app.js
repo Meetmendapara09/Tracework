@@ -13,6 +13,7 @@ let view = 'all';
 let selected = null;
 let editing = null;
 let toastTimer;
+let previewedCsv = null;
 const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 const byId = id => workspace.nodes.find(node => node.id === id);
 const related = id => workspace.links.filter(link => link.from === id || link.to === id);
@@ -69,6 +70,7 @@ async function change(path, method, body, message) {
     toast(message);
   } catch (error) { toast(error.message, true); }
   finally { $('#sync-state').innerHTML = saved ? '<span class="sync-dot"></span> Saved locally' : 'Not saved — retry'; }
+  return saved;
 }
 function renderMetrics() {
   const claims = workspace.nodes.filter(n => n.type === 'claim');
@@ -87,16 +89,62 @@ function renderMetrics() {
     const el = document.querySelector(`[data-count="${type}"]`);
     el.textContent = type === 'all' ? workspace.nodes.length : workspace.nodes.filter(node => type === 'review' ? needsReview(node) : node.type === type).length;
   }
+  const filter = $('#tag-filter');
+  const previous = filter.value;
+  const tags = new Map();
+  for (const tag of workspace.nodes.flatMap(node => node.tags || [])) if (!tags.has(tag.toLocaleLowerCase())) tags.set(tag.toLocaleLowerCase(), tag);
+  filter.innerHTML = '<option value="">All tags</option>' + [...tags].sort((a, b) => a[1].localeCompare(b[1])).map(([value, label]) => `<option value="${escapeHTML(value)}">${escapeHTML(label)}</option>`).join('');
+  filter.value = tags.has(previous) ? previous : '';
+}
+function tagChips(tags) {
+  return tags?.length ? `<span class="tag-list">${tags.map(tag => `<span class="tag-chip">${escapeHTML(tag)}</span>`).join('')}</span>` : '';
 }
 function card(node) {
   const badge = health(node);
   const snippet = node.body || (node.type === 'source' ? node.url : 'Add notes to capture the context behind this item.');
-  return `<button class="item-card ${selected === node.id ? 'selected' : ''}" data-open="${escapeHTML(node.id)}" aria-label="Open ${escapeHTML(node.type)}: ${escapeHTML(node.title)}"><span class="card-top"><span class="card-id">${META[node.type].icon} &nbsp; ${META[node.type].label}</span><span class="card-arrow" aria-hidden="true">↗</span></span><strong>${escapeHTML(node.title)}</strong><span class="card-snippet">${escapeHTML(snippet)}</span><span class="card-foot"><span class="badge ${badge.tone}"><span class="badge-dot"></span>${escapeHTML(badge.label)}</span><span class="connection-count" title="Connections">⌁ ${related(node.id).length}</span></span></button>`;
+  return `<button class="item-card ${selected === node.id ? 'selected' : ''}" data-open="${escapeHTML(node.id)}" aria-label="Open ${escapeHTML(node.type)}: ${escapeHTML(node.title)}"><span class="card-top"><span class="card-id">${META[node.type].icon} &nbsp; ${META[node.type].label}</span><span class="card-arrow" aria-hidden="true">↗</span></span><strong>${escapeHTML(node.title)}</strong><span class="card-snippet">${escapeHTML(snippet)}</span>${tagChips(node.tags)}<span class="card-foot"><span class="badge ${badge.tone}"><span class="badge-dot"></span>${escapeHTML(badge.label)}</span><span class="connection-count" title="Connections">⌁ ${related(node.id).length}</span></span></button>`;
+}
+function renderMatrix(query, tag, sort) {
+  const claims = workspace.nodes.filter(node => node.type === 'claim' && (!tag || (node.tags || []).some(value => value.toLocaleLowerCase() === tag)) && (!query || `${node.title} ${node.body} ${(node.tags || []).join(' ')}`.toLowerCase().includes(query)));
+  claims.sort((a, b) => sort === 'title' ? a.title.localeCompare(b.title) : sort === 'oldest' ? a.createdAt.localeCompare(b.createdAt) : b.updatedAt.localeCompare(a.updatedAt));
+  const visible = claims.slice(0, 50);
+  const ids = new Set(visible.map(node => node.id));
+  const relevance = new Map();
+  const edge = new Map();
+  for (const link of workspace.links) {
+    if (!['supports', 'challenges'].includes(link.kind)) continue;
+    if (ids.has(link.to)) relevance.set(link.from, (relevance.get(link.from) || 0) + 1);
+    const key = `${link.to}:${link.from}`;
+    if (!edge.has(key)) edge.set(key, new Set());
+    edge.get(key).add(link.kind);
+  }
+  const sources = workspace.nodes.filter(node => node.type === 'source');
+  sources.sort((a, b) => (relevance.get(b.id) || 0) - (relevance.get(a.id) || 0) || a.title.localeCompare(b.title));
+  const shown = sources.slice(0, 24);
+  $('#result-count').textContent = `${claims.length} claim${claims.length === 1 ? '' : 's'}`;
+  $('#board-title').firstChild.textContent = 'Map the evidence ';
+  $('#board').classList.remove('single-view', 'review-view');
+  $('#board').classList.add('matrix-view');
+  if (!claims.length) {
+    $('#board').innerHTML = '<div class="empty-state"><div class="empty-art">◇</div><h3>No claims to map yet.</h3><p>Add a claim, or adjust your search and tag filter.</p><button class="primary-button" data-add="claim">＋ Add a claim</button></div>';
+    return;
+  }
+  const rows = visible.map(claim => `<tr><th scope="row"><button data-open="${escapeHTML(claim.id)}">${escapeHTML(claim.title)}</button><small>${escapeHTML(claimHealth(claim.id).label)}</small></th>${shown.map(source => {
+    const kinds = edge.get(`${claim.id}:${source.id}`);
+    if (!kinds) return '<td><span class="matrix-empty" aria-label="Not connected">·</span></td>';
+    const tone = kinds.size === 2 ? 'mixed' : kinds.has('challenges') ? 'challenge' : 'support';
+    const label = kinds.size === 2 ? 'Supports and challenges' : kinds.has('challenges') ? 'Challenges' : 'Supports';
+    return `<td><button class="matrix-cell ${tone}" data-open="${escapeHTML(source.id)}" title="${label}: ${escapeHTML(source.title)}" aria-label="${label} ${escapeHTML(claim.title)}: ${escapeHTML(source.title)}">${kinds.size === 2 ? '±' : kinds.has('challenges') ? '−' : '+'}</button></td>`;
+  }).join('') || '<td class="matrix-no-source">Add a source to start mapping evidence.</td>'}</tr>`).join('');
+  $('#board').innerHTML = `<div class="matrix-panel"><div class="matrix-intro"><strong>${visible.filter(node => claimHealth(node.id).supports).length}/${visible.length} claims have support</strong><span><i class="matrix-key support">+</i> Supports <i class="matrix-key challenge">−</i> Challenges <i class="matrix-key mixed">±</i> Both</span></div><div class="matrix-scroll"><table><thead><tr><th scope="col">CLAIM ↓ &nbsp; / &nbsp; SOURCE →</th>${shown.map(source => `<th scope="col"><button data-open="${escapeHTML(source.id)}" title="${escapeHTML(source.title)}">${escapeHTML(source.title)}</button></th>`).join('') || '<th scope="col">SOURCES</th>'}</tr></thead><tbody>${rows}</tbody></table></div>${claims.length > 50 || sources.length > 24 ? `<p class="matrix-limit">Showing ${visible.length} of ${claims.length} claims and ${shown.length} of ${sources.length} sources. Search or filter to narrow claims; the most connected sources appear first. Indicators always use the full evidence trail.</p>` : '<p class="matrix-limit">Select a claim, source, or connection to explore its context. Indicators use the full evidence trail.</p>'}</div>`;
 }
 function renderBoard() {
   const query = $('#search').value.trim().toLowerCase();
+  const tag = $('#tag-filter').value;
   const sort = $('#sort').value;
-  const matches = node => (view === 'all' || (view === 'review' ? needsReview(node) : node.type === view)) && (!query || `${node.title} ${node.body} ${node.url} ${node.status}`.toLowerCase().includes(query));
+  if (view === 'matrix') { renderMatrix(query, tag, sort); return; }
+  $('#board').classList.remove('matrix-view');
+  const matches = node => (view === 'all' || (view === 'review' ? needsReview(node) : node.type === view)) && (!tag || (node.tags || []).some(value => value.toLocaleLowerCase() === tag)) && (!query || `${node.title} ${node.body} ${node.url} ${node.status} ${(node.tags || []).join(' ')}`.toLowerCase().includes(query));
   const filtered = workspace.nodes.filter(matches);
   $('#result-count').textContent = `${filtered.length} item${filtered.length === 1 ? '' : 's'}`;
   $('#board-title').firstChild.textContent = view === 'all' ? 'Your work, connected ' : view === 'review' ? 'Questions worth revisiting ' : `${META[view].plural}, in context `;
@@ -132,12 +180,12 @@ function renderInspector() {
   const links = related(node.id);
   const badge = health(node);
   const choices = optionsFor(node);
-  panel.innerHTML = `<div class="inspector-body"><div class="inspector-top"><span class="section-kicker">ITEM DETAILS / ${META[node.type].label}</span><button class="icon-button" data-close-inspector aria-label="Close details">✕</button></div><div class="detail-type detail-${node.type}"><span>${META[node.type].icon}</span> ${META[node.type].label}</div><h2>${escapeHTML(node.title)}</h2><div class="detail-meta"><span class="badge ${badge.tone}"><span class="badge-dot"></span>${escapeHTML(badge.label)}</span>${node.status ? `<span class="meta-status">${escapeHTML(statusLabel(node.status))}</span>` : ''}</div><div class="detail-section"><div class="detail-label">CONTEXT</div><p class="detail-body">${escapeHTML(node.body || 'No notes yet. Add context to make this item more useful to your future self.')}</p>${node.url ? `<a class="source-url" href="${escapeHTML(node.url)}" target="_blank" rel="noopener noreferrer">Open source ↗</a>` : ''}${node.due ? `<p class="due-date">Due ${escapeHTML(node.due)}</p>` : ''}</div><div class="detail-section"><div class="detail-label">CONNECTIONS <span>${links.length.toString().padStart(2, '0')}</span></div>${links.length ? links.map(link => { const other = byId(link.from === node.id ? link.to : link.from); return `<div class="link-row"><button data-open="${escapeHTML(other.id)}" title="Open connected item"><span class="link-direction">${link.from === node.id ? '↗' : '↙'}</span><span class="link-text"><small>${escapeHTML(link.kind.toUpperCase())} · ${META[other.type].label}</small><strong>${escapeHTML(other.title)}</strong></span></button><button class="remove-link" data-remove-link="${escapeHTML(link.id)}" aria-label="Remove connection to ${escapeHTML(other.title)}">×</button></div>`; }).join('') : '<p class="detail-muted">No connections yet. Link this item to show how the work fits together.</p>'}</div><div class="detail-section"><div class="detail-label">CONNECT THE DOTS</div>${choices.length ? `<form id="link-form"><label class="sr-only" for="link-choice">Choose a connection</label><select id="link-choice" name="choice">${choices.map(c => `<option value="${c.from}|${c.to}|${c.kind}">${escapeHTML(c.kind)} ${c.from === node.id ? '→' : '←'} ${escapeHTML(c.other.title)}</option>`).join('')}</select><button class="secondary-button" type="submit">＋ Add connection</button></form>` : '<p class="detail-muted">Add an item in a neighboring stage to connect it here.</p>'}</div><div class="inspector-actions"><button class="secondary-button" id="edit-item">Edit item</button><button class="delete-button" id="delete-item">Delete</button></div></div>`;
+  panel.innerHTML = `<div class="inspector-body"><div class="inspector-top"><span class="section-kicker">ITEM DETAILS / ${META[node.type].label}</span><button class="icon-button" data-close-inspector aria-label="Close details">✕</button></div><div class="detail-type detail-${node.type}"><span>${META[node.type].icon}</span> ${META[node.type].label}</div><h2>${escapeHTML(node.title)}</h2><div class="detail-meta"><span class="badge ${badge.tone}"><span class="badge-dot"></span>${escapeHTML(badge.label)}</span>${node.status ? `<span class="meta-status">${escapeHTML(statusLabel(node.status))}</span>` : ''}</div>${tagChips(node.tags)}<div class="detail-section"><div class="detail-label">CONTEXT</div><p class="detail-body">${escapeHTML(node.body || 'No notes yet. Add context to make this item more useful to your future self.')}</p>${node.url ? `<a class="source-url" href="${escapeHTML(node.url)}" target="_blank" rel="noopener noreferrer">Open source ↗</a>` : ''}${node.due ? `<p class="due-date">Due ${escapeHTML(node.due)}</p>` : ''}</div><div class="detail-section"><div class="detail-label">CONNECTIONS <span>${links.length.toString().padStart(2, '0')}</span></div>${links.length ? links.map(link => { const other = byId(link.from === node.id ? link.to : link.from); return `<div class="link-row"><button data-open="${escapeHTML(other.id)}" title="Open connected item"><span class="link-direction">${link.from === node.id ? '↗' : '↙'}</span><span class="link-text"><small>${escapeHTML(link.kind.toUpperCase())} · ${META[other.type].label}</small><strong>${escapeHTML(other.title)}</strong></span></button><button class="remove-link" data-remove-link="${escapeHTML(link.id)}" aria-label="Remove connection to ${escapeHTML(other.title)}">×</button></div>`; }).join('') : '<p class="detail-muted">No connections yet. Link this item to show how the work fits together.</p>'}</div><div class="detail-section"><div class="detail-label">CONNECT THE DOTS</div>${choices.length ? `<form id="link-form"><label class="sr-only" for="link-choice">Choose a connection</label><select id="link-choice" name="choice">${choices.map(c => `<option value="${c.from}|${c.to}|${c.kind}">${escapeHTML(c.kind)} ${c.from === node.id ? '→' : '←'} ${escapeHTML(c.other.title)}</option>`).join('')}</select><button class="secondary-button" type="submit">＋ Add connection</button></form>` : '<p class="detail-muted">Add an item in a neighboring stage to connect it here.</p>'}</div><div class="inspector-actions"><button class="secondary-button" id="edit-item">Edit item</button><button class="delete-button" id="delete-item">Delete</button></div></div>`;
 }
 function render() {
-  $('#breadcrumb-view').textContent = view === 'all' ? 'Overview' : view === 'review' ? 'Review queue' : META[view].plural;
-  $('#page-title').innerHTML = view === 'all' ? 'Make the thinking <em>visible.</em>' : view === 'review' ? 'Stay curious. <em>Look closer.</em>' : `${META[view].plural}, <em>in context.</em>`;
-  $('#page-subtitle').textContent = view === 'all' ? 'From raw sources to considered decisions. Keep the why connected to what happens next.' : view === 'review' ? 'Unverified claims, counterevidence, and decisions that need a second look.' : META[view].hint + ' Connect it to the wider picture.';
+  $('#breadcrumb-view').textContent = view === 'all' ? 'Overview' : view === 'review' ? 'Review queue' : view === 'matrix' ? 'Evidence matrix' : META[view].plural;
+  $('#page-title').innerHTML = view === 'all' ? 'Make the thinking <em>visible.</em>' : view === 'review' ? 'Stay curious. <em>Look closer.</em>' : view === 'matrix' ? 'See where ideas <em>meet evidence.</em>' : `${META[view].plural}, <em>in context.</em>`;
+  $('#page-subtitle').textContent = view === 'all' ? 'From raw sources to considered decisions. Keep the why connected to what happens next.' : view === 'review' ? 'Unverified claims, counterevidence, and decisions that need a second look.' : view === 'matrix' ? 'Compare sources against claims, find missing links, and surface contradictions.' : META[view].hint + ' Connect it to the wider picture.';
   document.querySelectorAll('[data-view]').forEach(button => { button.classList.toggle('active', button.dataset.view === view); button.setAttribute('aria-current', button.dataset.view === view ? 'page' : 'false'); });
   renderMetrics(); renderBoard(); renderInspector();
 }
@@ -149,6 +197,7 @@ function openDialog(type = 'source', node = null) {
   $('#field-type').value = node?.type || type;
   form.elements.title.value = node?.title || '';
   form.elements.body.value = node?.body || '';
+  form.elements.tags.value = (node?.tags || []).join(', ');
   form.elements.url.value = node?.url || '';
   form.elements.due.value = node?.due || '';
   updateFields(node?.status);
@@ -201,21 +250,70 @@ $('#item-form').addEventListener('submit', async event => {
   const form = event.target;
   if (!form.reportValidity()) return;
   const type = $('#field-type').value;
-  const data = { title: form.elements.title.value, body: form.elements.body.value };
+  const data = { title: form.elements.title.value, body: form.elements.body.value, tags: form.elements.tags.value ? form.elements.tags.value.split(',').map(tag => tag.trim()) : [] };
   if (type === 'source') data.url = form.elements.url.value;
   if (type === 'task') data.due = form.elements.due.value;
   if (type !== 'source') data.status = form.elements.status.value;
   if (!editing) data.type = type;
   const id = editing;
-  $('#item-dialog').close();
-  await change(id ? `/api/nodes/${encodeURIComponent(id)}` : '/api/nodes', id ? 'PATCH' : 'POST', data, id ? 'Item updated' : 'Item added to the trail');
+  const saved = await change(id ? `/api/nodes/${encodeURIComponent(id)}` : '/api/nodes', id ? 'PATCH' : 'POST', data, id ? 'Item updated' : 'Item added to the trail');
+  if (saved) $('#item-dialog').close();
 });
 $('#search').addEventListener('input', renderBoard);
 $('#sort').addEventListener('change', renderBoard);
+$('#tag-filter').addEventListener('change', renderBoard);
 $('#reset-button').addEventListener('click', async () => {
   if (!confirm('Start a blank workspace? Export a JSON backup first if you want to keep your current work.')) return;
   selected = null; view = 'all'; $('#search').value = '';
   await change('/api/workspace', 'PUT', { nodes: [], links: [] }, 'Blank workspace ready');
+});
+function csvMessage(message, error = false) {
+  const panel = $('#csv-preview');
+  panel.classList.toggle('error', error);
+  panel.textContent = message;
+}
+function invalidateCsvPreview() {
+  previewedCsv = null;
+  $('#commit-csv').disabled = true;
+  csvMessage('Preview again to check this CSV against the current workspace.');
+}
+$('#csv-button').addEventListener('click', () => { invalidateCsvPreview(); $('#csv-dialog').showModal(); });
+$('#close-csv').addEventListener('click', () => $('#csv-dialog').close());
+$('#csv-text').addEventListener('input', invalidateCsvPreview);
+$('#csv-file').addEventListener('change', async event => {
+  const file = event.target.files[0];
+  event.target.value = '';
+  if (!file) return;
+  invalidateCsvPreview();
+  if (file.size > 8 * 1024 * 1024) { csvMessage('CSV must be under 8 MB', true); return; }
+  try { $('#csv-text').value = await file.text(); }
+  catch { csvMessage('Could not read this CSV file', true); }
+});
+$('#preview-csv').addEventListener('click', async () => {
+  invalidateCsvPreview();
+  const csv = $('#csv-text').value;
+  csvMessage('Checking rows and existing items…');
+  try {
+    const plan = await api('/api/import/preview', 'POST', { csv });
+    previewedCsv = csv;
+    $('#commit-csv').disabled = plan.add === 0;
+    $('#csv-preview').innerHTML = `<strong>${plan.add} to add · ${plan.skip} duplicate${plan.skip === 1 ? '' : 's'} to skip</strong><ul>${plan.entries.slice(0, 30).map(entry => `<li><span>Line ${entry.line} · ${escapeHTML(entry.action)} · ${escapeHTML(entry.type)}</span> ${escapeHTML(entry.title)}</li>`).join('')}</ul>${plan.entries.length > 30 ? `<p>And ${plan.entries.length - 30} more rows.</p>` : ''}`;
+  } catch (error) { csvMessage(error.message, true); }
+});
+$('#commit-csv').addEventListener('click', async () => {
+  if (!previewedCsv || previewedCsv !== $('#csv-text').value) return;
+  $('#commit-csv').disabled = true;
+  csvMessage('Importing…');
+  try {
+    const { workspace: imported, report } = await api('/api/import/csv', 'POST', { csv: previewedCsv });
+    workspace = imported;
+    selected = null;
+    render();
+    $('#csv-dialog').close();
+    $('#csv-text').value = '';
+    previewedCsv = null;
+    toast(`Imported ${report.added} items; skipped ${report.skipped} duplicates`);
+  } catch (error) { previewedCsv = null; csvMessage(error.message + ' Preview again before importing.', true); }
 });
 $('#import-button').addEventListener('click', () => $('#import-file').click());
 $('#import-file').addEventListener('change', async event => {
@@ -230,7 +328,7 @@ $('#import-file').addEventListener('change', async event => {
   } catch { toast('This file is not valid JSON', true); }
 });
 document.addEventListener('keydown', event => {
-  if (event.key === 'Escape' && !$('#item-dialog').open && selected) { selected = null; renderBoard(); renderInspector(); }
+  if (event.key === 'Escape' && !$('#item-dialog').open && !$('#csv-dialog').open && selected) { selected = null; renderBoard(); renderInspector(); }
   if (event.metaKey || event.ctrlKey || event.altKey || event.target.closest('input,textarea,select,[contenteditable],dialog')) return;
   if (event.key === '/') { event.preventDefault(); $('#search').focus(); }
   if (event.key.toLowerCase() === 'n') { event.preventDefault(); openDialog(TYPES.includes(view) ? view : 'source'); }

@@ -39,6 +39,35 @@ test('creates, updates, reloads, and cascades deleted connections', async t => {
   assert.equal(claimHealth(state, claim).label, 'Unverified');
 });
 
+test('tags are validated, editable, and old backups migrate without losing data', async t => {
+  const { file, store } = await fixture(t);
+  let state = await store.addNode(0, { type: 'source', title: 'Tagged paper', tags: ['Methods', 'Phase 1'] });
+  assert.deepEqual(state.nodes[0].tags, ['Methods', 'Phase 1']);
+  await assert.rejects(store.updateNode(1, state.nodes[0].id, { tags: ['Methods', 'methods'] }), { status: 400 });
+  state = await store.updateNode(1, state.nodes[0].id, { tags: ['Reviewed'] });
+  assert.match(exportMarkdown(state), /Tags: Reviewed/);
+  const legacy = structuredClone(state);
+  for (const node of legacy.nodes) delete node.tags;
+  state = await store.replace(state.revision, legacy);
+  assert.deepEqual(state.nodes[0].tags, []);
+  assert.deepEqual((await createStore(file).init()).snapshot().nodes[0].tags, []);
+});
+
+test('CSV batches are atomic and preserve existing links', async t => {
+  const { store } = await fixture(t);
+  const first = await store.addNode(0, { type: 'source', title: 'Existing', url: 'https://example.org' });
+  const rows = [
+    { line: 2, item: { type: 'source', title: 'Duplicate URL', url: 'https://example.org/' } },
+    { line: 3, item: { type: 'claim', title: 'New claim', tags: ['Study'] } },
+  ];
+  let result = await store.importNodes(first.revision, rows);
+  assert.deepEqual(result.report, { added: 1, skipped: 1 });
+  assert.equal(result.workspace.nodes.length, 2);
+  await assert.rejects(store.importNodes(result.workspace.revision, [...rows, { line: 4, item: { type: 'task', title: '' } }]), { status: 400 });
+  assert.equal(store.snapshot().revision, result.workspace.revision);
+  await assert.rejects(store.importNodes(first.revision, rows), { status: 409 });
+});
+
 test('serializes concurrent writes; rejects stale revisions without losing changes', async t => {
   const { store } = await fixture(t);
   const results = await Promise.allSettled([

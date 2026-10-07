@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { z } from 'zod';
 
 export const TYPES = ['source', 'claim', 'decision', 'task'];
 export const LINK_RULES = {
@@ -12,6 +13,7 @@ export const LINK_RULES = {
 const STATUSES = { source: [''], claim: ['open', 'reviewed'], decision: ['proposed', 'accepted', 'rejected'], task: ['todo', 'doing', 'done'] };
 const MAX_NODES = 2000;
 const MAX_LINKS = 6000;
+export const MAX_IMPORT_ROWS = 500;
 
 export class AppError extends Error {
   constructor(status, message) {
@@ -26,44 +28,38 @@ function object(value) {
 function keysOnly(value, allowed) {
   if (!object(value) || Object.keys(value).some(key => !allowed.includes(key))) throw new AppError(400, 'Invalid or unexpected fields');
 }
-function text(value, name, max, required = false) {
-  if (typeof value !== 'string' || value.length > max) throw new AppError(400, `${name} must be text of at most ${max} characters`);
-  const trimmed = value.trim();
-  if (required && !trimmed) throw new AppError(400, `${name} is required`);
-  return trimmed;
-}
 function validDate(value) {
   if (!value) return true;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const date = new Date(`${value}T00:00:00Z`);
   return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
-function validateNodeFields(input, type, partial = false) {
-  keysOnly(input, ['title', 'body', 'url', 'status', 'due']);
-  if (!partial && !('title' in input)) throw new AppError(400, 'title is required');
-  const out = {};
-  if ('title' in input) out.title = text(input.title, 'title', 160, true);
-  if ('body' in input) out.body = text(input.body, 'body', 10000);
-  if ('url' in input) {
-    if (type !== 'source') throw new AppError(400, 'Only sources can have URLs');
-    out.url = text(input.url, 'url', 2048);
-    if (out.url) {
-      try {
-        const url = new URL(out.url);
-        if (!['http:', 'https:'].includes(url.protocol)) throw new Error('protocol');
-      } catch { throw new AppError(400, 'url must be an http(s) URL'); }
-    }
+const tagsSchema = z.array(z.string().trim().min(1).max(32).regex(/^[^,|\x00-\x1f]+$/, 'Avoid commas, pipes, and control characters in tags'))
+  .max(12).superRefine((tags, context) => {
+    if (new Set(tags.map(tag => tag.toLocaleLowerCase())).size !== tags.length) context.addIssue({ code: 'custom', message: 'Tags must be unique (case-insensitive)' });
+  });
+const urlSchema = z.string().trim().max(2048).refine(value => {
+  if (!value) return true;
+  try { return ['http:', 'https:'].includes(new URL(value).protocol); }
+  catch { return false; }
+}, 'URL must be an http(s) URL');
+const dateSchema = z.string().trim().max(10).refine(validDate, 'Due must be a valid YYYY-MM-DD date');
+const schemas = Object.fromEntries(TYPES.map(type => [type, z.strictObject({
+  title: z.string().trim().min(1, 'Title is required').max(160),
+  body: z.string().trim().max(10000).optional(),
+  tags: tagsSchema.optional(),
+  status: z.enum(STATUSES[type]).optional(),
+  ...(type === 'source' ? { url: urlSchema.optional() } : {}),
+  ...(type === 'task' ? { due: dateSchema.optional() } : {}),
+})]));
+export function validateNodeFields(input, type, partial = false) {
+  if (!TYPES.includes(type)) throw new AppError(400, 'Invalid item type');
+  const parsed = (partial ? schemas[type].partial() : schemas[type]).safeParse(input);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    throw new AppError(400, `${issue.path.join('.') || 'item'}: ${issue.message}`);
   }
-  if ('status' in input) {
-    if (!STATUSES[type].includes(input.status)) throw new AppError(400, `Invalid ${type} status`);
-    out.status = input.status;
-  }
-  if ('due' in input) {
-    if (type !== 'task') throw new AppError(400, 'Only tasks can have due dates');
-    out.due = text(input.due, 'due', 10);
-    if (!validDate(out.due)) throw new AppError(400, 'due must be a valid YYYY-MM-DD date');
-  }
-  return out;
+  return parsed.data;
 }
 function validateLink(input, nodes) {
   keysOnly(input, ['from', 'to', 'kind']);
@@ -84,17 +80,17 @@ export function validateWorkspace(input) {
   if (!Array.isArray(input.nodes) || !Array.isArray(input.links) || input.nodes.length > MAX_NODES || input.links.length > MAX_LINKS) throw new AppError(400, 'Invalid workspace size');
   const ids = new Set();
   const nodes = input.nodes.map(node => {
-    keysOnly(node, ['id', 'type', 'title', 'body', 'url', 'status', 'due', 'createdAt', 'updatedAt']);
+    keysOnly(node, ['id', 'type', 'title', 'body', 'url', 'status', 'due', 'tags', 'createdAt', 'updatedAt']);
     if (typeof node.id !== 'string' || !/^[\w-]{1,80}$/.test(node.id) || ids.has(node.id) || !TYPES.includes(node.type)) throw new AppError(400, 'Invalid or duplicate node ID/type');
     ids.add(node.id);
     const validTime = value => typeof value === 'string' && !Number.isNaN(Date.parse(value)) && new Date(value).toISOString() === value;
     if (!validTime(node.createdAt) || !validTime(node.updatedAt)) throw new AppError(400, 'Invalid timestamp');
-    const fields = { title: node.title, body: node.body ?? '' };
+    const fields = { title: node.title, body: node.body ?? '', tags: node.tags === undefined ? [] : node.tags };
     if (node.url !== undefined && (node.type === 'source' || node.url !== '')) fields.url = node.url;
     if (node.status !== undefined) fields.status = node.status;
     if (node.due !== undefined && (node.type === 'task' || node.due !== '')) fields.due = node.due;
     const clean = validateNodeFields(fields, node.type);
-    return { id: node.id, type: node.type, body: '', url: '', due: '', status: STATUSES[node.type][0], ...clean, createdAt: node.createdAt, updatedAt: node.updatedAt };
+    return { id: node.id, type: node.type, body: '', url: '', due: '', tags: [], status: STATUSES[node.type][0], ...clean, createdAt: node.createdAt, updatedAt: node.updatedAt };
   });
   const linkIds = new Set();
   const links = input.links.map(link => {
@@ -105,6 +101,34 @@ export function validateWorkspace(input) {
   });
   if (new Set(links.map(link => `${link.from}:${link.to}:${link.kind}`)).size !== links.length) throw new AppError(400, 'Duplicate links');
   return { nodes, links };
+}
+
+// The same plan is used for previews and for the queued commit, so duplicates
+// are recalculated against the actual revision being written.
+export function planBatch(workspace, rows) {
+  if (!Array.isArray(rows) || !rows.length || rows.length > MAX_IMPORT_ROWS) throw new AppError(400, `Import 1–${MAX_IMPORT_ROWS} rows at a time`);
+  const identity = node => node.type === 'source' && node.url
+    ? `source:url:${new URL(node.url).href}`
+    : `${node.type}:title:${node.title.toLocaleLowerCase()}`;
+  const seen = new Set(workspace.nodes.map(identity));
+  const entries = [];
+  const additions = [];
+  for (const row of rows) {
+    try {
+      const { type, ...fields } = row.item;
+      const clean = validateNodeFields(fields, type);
+      const item = { type, body: '', url: '', due: '', tags: [], status: STATUSES[type][0], ...clean };
+      const key = identity(item);
+      const action = seen.has(key) ? 'skip' : 'add';
+      entries.push({ line: row.line, title: item.title, type, action, ...(action === 'skip' ? { reason: 'Already in workspace or this file' } : {}) });
+      if (action === 'add') { seen.add(key); additions.push(item); }
+    } catch (error) {
+      if (error instanceof AppError) throw new AppError(400, `Row ${row.line}: ${error.message}`);
+      throw error;
+    }
+  }
+  if (workspace.nodes.length + additions.length > MAX_NODES) throw new AppError(400, 'Import exceeds workspace capacity');
+  return { entries, additions, add: additions.length, skip: rows.length - additions.length };
 }
 
 export function createStore(file, initial = emptyWorkspace()) {
@@ -151,13 +175,13 @@ export function createStore(file, initial = emptyWorkspace()) {
     init, snapshot,
     addNode(expected, input) {
       return mutate(expected, next => {
-        keysOnly(input, ['type', 'title', 'body', 'url', 'status', 'due']);
+        keysOnly(input, ['type', 'title', 'body', 'url', 'status', 'due', 'tags']);
         if (!TYPES.includes(input.type)) throw new AppError(400, 'Invalid item type');
         if (next.nodes.length >= MAX_NODES) throw new AppError(400, 'Workspace is full');
         const { type, ...fields } = input;
         const clean = validateNodeFields(fields, type);
         const now = new Date().toISOString();
-        next.nodes.push({ id: randomUUID(), type, title: '', body: '', url: '', due: '', status: STATUSES[type][0], ...clean, createdAt: now, updatedAt: now });
+        next.nodes.push({ id: randomUUID(), type, title: '', body: '', url: '', due: '', tags: [], status: STATUSES[type][0], ...clean, createdAt: now, updatedAt: now });
       });
     },
     updateNode(expected, id, fields) {
@@ -195,6 +219,15 @@ export function createStore(file, initial = emptyWorkspace()) {
         next.links = clean.links;
       });
     },
+    importNodes(expected, rows) {
+      let report;
+      return mutate(expected, next => {
+        const plan = planBatch(next, rows);
+        const now = new Date().toISOString();
+        next.nodes.push(...plan.additions.map(item => ({ id: randomUUID(), ...item, createdAt: now, updatedAt: now })));
+        report = { added: plan.add, skipped: plan.skip };
+      }).then(workspace => ({ workspace, report }));
+    },
   };
   return store;
 }
@@ -225,6 +258,7 @@ export function exportMarkdown(workspace) {
       lines.push(`### ${md(node.title)}`, '', `ID: \`${node.id}\``);
       if (node.status) lines.push(`Status: ${node.status}`);
       if (node.due) lines.push(`Due: ${node.due}`);
+      if (node.tags?.length) lines.push(`Tags: ${node.tags.map(md).join(', ')}`);
       if (node.url) lines.push(`URL: ${node.url}`);
       if (type === 'claim') lines.push(`Evidence: ${claimHealth(workspace, node.id).label}`);
       if (type === 'decision') lines.push(`Readiness: ${decisionHealth(workspace, node.id)}`);

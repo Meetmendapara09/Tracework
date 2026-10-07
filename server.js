@@ -2,7 +2,8 @@ import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
-import { AppError, createStore, emptyWorkspace, exportMarkdown } from './src/core.js';
+import { AppError, createStore, exportMarkdown, planBatch } from './src/core.js';
+import { CSV_TEMPLATE, exportItemsCsv, parseItemsCsv } from './src/csv.js';
 import { sampleWorkspace } from './src/sample.js';
 
 const publicDir = join(dirname(fileURLToPath(import.meta.url)), 'public');
@@ -66,9 +67,25 @@ export async function createApp({ dataFile = resolve('data/workspace.json'), ini
         send(res, 200, store.snapshot(), 'application/json; charset=utf-8', { 'Content-Disposition': 'attachment; filename="tracework-workspace.json"' });
         return;
       }
+      if (req.method === 'GET' && (path === '/api/export.csv' || path === '/api/template.csv')) {
+        send(res, 200, path === '/api/template.csv' ? CSV_TEMPLATE : exportItemsCsv(store.snapshot()), 'text/csv; charset=utf-8', { 'Content-Disposition': `attachment; filename="tracework-${path === '/api/template.csv' ? 'template' : 'items'}.csv"` });
+        return;
+      }
       if (['POST', 'PATCH', 'PUT', 'DELETE'].includes(req.method)) {
         sameOrigin(req);
         const expected = revision(req);
+        if (req.method === 'POST' && (path === '/api/import/preview' || path === '/api/import/csv')) {
+          const body = await jsonBody(req);
+          if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(key => key !== 'csv')) throw new AppError(400, 'Expected { csv: "..." }');
+          const rows = parseItemsCsv(body.csv);
+          if (path === '/api/import/preview') {
+            const current = store.snapshot();
+            if (expected !== current.revision) throw new AppError(409, 'Workspace changed. Refresh to see the latest version.');
+            const { entries, add, skip } = planBatch(current, rows);
+            send(res, 200, { revision: current.revision, entries, add, skip });
+          } else send(res, 200, await store.importNodes(expected, rows));
+          return;
+        }
         let result;
         const node = path.match(/^\/api\/nodes\/([\w-]+)$/);
         const link = path.match(/^\/api\/links\/([\w-]+)$/);

@@ -62,6 +62,37 @@ test('API revision checks, CRUD, exports, and re-import round trip', async t => 
   assert.equal(state.revision, 4);
 });
 
+test('CSV preview, deduplication, commit, and spreadsheet export', async t => {
+  const { request } = await fixture(t);
+  const csv = 'type,title,body,url,status,due,tags\nsource,"Notes, session one",Observation,https://example.org,,,Research|Sprint 1\nclaim,Interpretation,Reasoning,,open,,\n';
+  let result = await request('/api/import/preview', 'POST', { csv });
+  assert.equal(result.response.status, 200);
+  assert.deepEqual(JSON.parse(result.body).entries.map(entry => entry.action), ['add', 'add']);
+  result = await request('/api/import/csv', 'POST', { csv });
+  assert.equal(result.response.status, 200);
+  const imported = JSON.parse(result.body);
+  assert.deepEqual(imported.report, { added: 2, skipped: 0 });
+  assert.deepEqual(imported.workspace.nodes[0].tags, ['Research', 'Sprint 1']);
+  result = await request('/api/import/preview', 'POST', { csv }, imported.workspace.revision);
+  assert.equal(JSON.parse(result.body).skip, 2);
+  result = await request('/api/import/csv', 'POST', { csv }, imported.workspace.revision);
+  assert.deepEqual(JSON.parse(result.body).report, { added: 0, skipped: 2 });
+  const exported = await request('/api/export.csv');
+  assert.match(exported.body, /"Notes, session one"/);
+  assert.match(exported.response.headers.get('content-disposition'), /items.csv/);
+  assert.match((await request('/api/template.csv')).body, /type,title,body,url,status,due,tags/);
+  assert.match((await request('/api/export.md')).body, /Tags: Research, Sprint 1/);
+});
+
+test('bad CSV import does not partly save valid rows', async t => {
+  const { request } = await fixture(t);
+  const bad = 'type,title,due\nsource,Good,\ntask,Bad,2025-02-29';
+  const result = await request('/api/import/csv', 'POST', { csv: bad });
+  assert.equal(result.response.status, 400);
+  assert.match(result.body, /Row 3/);
+  assert.equal((await request('/api/workspace')).body, JSON.stringify(emptyWorkspace()));
+});
+
 test('preserves UTF-8 characters across split request chunks', async t => {
   const { port } = await fixture(t);
   const body = Buffer.from(JSON.stringify({ type: 'source', title: 'Résumé 🧪' }));

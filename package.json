@@ -8,9 +8,17 @@
     "start": "node server.js",
     "dev": "node --watch server.js",
     "test": "node --test",
-    "check": "node --check server.js && node --check src/core.js && node --check public/app.js && npm test"
+    "check": "node --check server.js && node --check src/core.js && node --check src/csv.js && node --check public/app.js && npm test"
   },
   "engines": {
     "node": ">=20"
+  },
+  "dependencies": {
+    "csv-parse": "^7.0.3",
+    "csv-stringify": "^6.9.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "jsdom": "^30.1.2"
   }
 }
