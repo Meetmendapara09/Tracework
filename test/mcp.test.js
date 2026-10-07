@@ -134,3 +134,51 @@ test('MCP server reports tool errors without crashing', async (t) => {
   const again = JSON.parse(text(await request('tools/call', { name: 'list_projects', arguments: {} })).content[0].text);
   assert.equal(again.projects.length, 1);
 });
+
+test('MCP server manages projects and PDF attachments', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'tracework-mcp-proj-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const { request } = await session(t, join(dir, 'workspace.json'));
+  const call = async (name, args) =>
+    JSON.parse(text(await request('tools/call', { name, arguments: args })).content[0].text);
+
+  const created = await call('create_project', { name: 'Agent research' });
+  assert.ok(created.id);
+  const renamed = await call('rename_project', { projectId: created.id, name: 'Renamed research' });
+  assert.equal(renamed.name, 'Renamed research');
+  const archived = await call('archive_project', { projectId: created.id, archived: true });
+  assert.equal(archived.archived, true);
+
+  const item = await call('add_item', { projectId: created.id, type: 'source', title: 'Paper with PDF' });
+  const pdf = Buffer.from('%PDF-1.4 agent attachment').toString('base64');
+  const uploaded = await call('upload_attachment', {
+    projectId: created.id,
+    nodeId: item.id,
+    filename: 'paper.pdf',
+    data: pdf,
+  });
+  assert.equal(uploaded.contentType, 'application/pdf');
+  const listed = await call('list_attachments', { projectId: created.id, nodeId: item.id });
+  assert.equal(listed.attachments.length, 1);
+
+  await call('delete_item', { projectId: created.id, id: item.id });
+  const gone = await request('tools/call', {
+    name: 'list_attachments',
+    arguments: { projectId: created.id, nodeId: item.id },
+  });
+  assert.equal(gone.result.isError, true);
+  assert.match(gone.result.content[0].text, /Item not found/);
+  const leftovers = [];
+  async function sweep(current) {
+    const { readdir, stat } = await import('node:fs/promises');
+    for (const entry of await readdir(current)) {
+      const full = join(current, entry);
+      if ((await stat(full)).isDirectory()) await sweep(full);
+      else if (entry.endsWith('.pdf')) leftovers.push(full);
+    }
+  }
+  await sweep(join(dir, 'attachments'));
+  assert.deepEqual(leftovers, []);
+  const workspace = await call('get_workspace', { projectId: created.id });
+  assert.equal(workspace.nodes.length, 0);
+});

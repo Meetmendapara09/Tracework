@@ -20,8 +20,10 @@
 // }
 
 import { resolve } from 'node:path';
+import { dirname, join } from 'node:path';
 import { AppError, exportMarkdown, planBatch } from './src/core.js';
 import { parseItemsCsv } from './src/csv.js';
+import { createAttachmentStore } from './src/attachments.js';
 import { createHistory } from './src/history.js';
 import { createProjectManager } from './src/projects.js';
 import { createSearchIndex } from './src/search.js';
@@ -29,6 +31,7 @@ import { createSearchIndex } from './src/search.js';
 const VERSION = '1.0.0';
 const dataFile = resolve(process.env.TRACEWORK_DATA || 'data/workspace.json');
 const projects = await createProjectManager({ dataFile });
+const attachments = await createAttachmentStore(join(dirname(dataFile), 'attachments'));
 const histories = new Map();
 
 async function historyFor(projectId) {
@@ -75,6 +78,36 @@ const TOOLS = [
     name: 'list_projects',
     description: 'List all Tracework projects with their names and archived flags.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'create_project',
+    description: 'Create a new empty project and return it.',
+    inputSchema: {
+      type: 'object',
+      required: ['name'],
+      properties: { name: { type: 'string' } },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'rename_project',
+    description: 'Rename a project.',
+    inputSchema: {
+      type: 'object',
+      required: ['projectId', 'name'],
+      properties: { projectId: { type: 'string' }, name: { type: 'string' } },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'archive_project',
+    description: 'Archive or restore a project. Archived projects stay readable and writable.',
+    inputSchema: {
+      type: 'object',
+      required: ['projectId', 'archived'],
+      properties: { projectId: { type: 'string' }, archived: { type: 'boolean' } },
+      additionalProperties: false,
+    },
   },
   {
     name: 'get_workspace',
@@ -198,6 +231,41 @@ const TOOLS = [
     },
   },
   {
+    name: 'list_attachments',
+    description: 'List PDF attachments on an item.',
+    inputSchema: {
+      type: 'object',
+      required: ['nodeId'],
+      properties: { projectId: { type: 'string' }, nodeId: { type: 'string' } },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'upload_attachment',
+    description: 'Attach a PDF file (base64 data, at most 15 MiB) to an item.',
+    inputSchema: {
+      type: 'object',
+      required: ['nodeId', 'filename', 'data'],
+      properties: {
+        projectId: { type: 'string' },
+        nodeId: { type: 'string' },
+        filename: { type: 'string' },
+        data: { type: 'string' },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'delete_attachment',
+    description: 'Delete a PDF attachment from an item.',
+    inputSchema: {
+      type: 'object',
+      required: ['nodeId', 'attachmentId'],
+      properties: { projectId: { type: 'string' }, nodeId: { type: 'string' }, attachmentId: { type: 'string' } },
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'import_csv',
     description:
       'Import items from CSV text (columns: type,title,body,url,status,due,tags,doi,authors,year,venue). Duplicates are skipped; any invalid row aborts the whole import.',
@@ -215,11 +283,25 @@ function requireString(value, name) {
   return value;
 }
 
+function requireNode(store, id) {
+  const node = store.snapshot().nodes.find((item) => item.id === id);
+  if (!node) throw new AppError(404, 'Item not found');
+  return node;
+}
+
 async function callTool(name, args = {}) {
   if (args !== null && typeof args !== 'object') throw new AppError(400, 'Tool arguments must be an object');
   switch (name) {
     case 'list_projects':
       return { defaultId: projects.defaultId, projects: projects.list() };
+    case 'create_project':
+      return projects.create(requireString(args.name, 'name'));
+    case 'rename_project':
+      return projects.rename(requireString(args.projectId, 'projectId'), requireString(args.name, 'name'));
+    case 'archive_project': {
+      if (typeof args.archived !== 'boolean') throw new AppError(400, 'archived must be true or false');
+      return projects.archive(requireString(args.projectId, 'projectId'), args.archived);
+    }
     case 'get_workspace': {
       const { store } = await useProject(projectArgument(args.projectId));
       return store.snapshot();
@@ -256,6 +338,9 @@ async function callTool(name, args = {}) {
       const { result } = await mutate(projectId, 'Delete item (agent)', (store, revision) =>
         store.deleteNode(revision, id),
       );
+      for (const entry of await attachments.list(projectId, id).catch(() => [])) {
+        await attachments.remove(projectId, id, entry.id).catch(() => {});
+      }
       return { revision: result.revision };
     }
     case 'add_link': {
@@ -312,6 +397,32 @@ async function callTool(name, args = {}) {
     case 'export_brief': {
       const { store } = await useProject(projectArgument(args.projectId));
       return { markdown: exportMarkdown(store.snapshot()) };
+    }
+    case 'list_attachments': {
+      const projectId = projectArgument(args.projectId);
+      const nodeId = requireString(args.nodeId, 'nodeId');
+      const { store } = await useProject(projectId);
+      requireNode(store, nodeId);
+      return { attachments: await attachments.list(projectId, nodeId) };
+    }
+    case 'upload_attachment': {
+      const projectId = projectArgument(args.projectId);
+      const nodeId = requireString(args.nodeId, 'nodeId');
+      const filename = requireString(args.filename, 'filename');
+      if (typeof args.data !== 'string' || !args.data) throw new AppError(400, 'data must be base64 PDF content');
+      if (args.data.length > 22 * 1024 * 1024) throw new AppError(413, 'PDF must be at most 15 MiB');
+      const { store } = await useProject(projectId);
+      requireNode(store, nodeId);
+      return attachments.add(projectId, nodeId, { filename, bytes: Buffer.from(args.data, 'base64') });
+    }
+    case 'delete_attachment': {
+      const projectId = projectArgument(args.projectId);
+      const nodeId = requireString(args.nodeId, 'nodeId');
+      const attachmentId = requireString(args.attachmentId, 'attachmentId');
+      const { store } = await useProject(projectId);
+      requireNode(store, nodeId);
+      await attachments.remove(projectId, nodeId, attachmentId);
+      return { ok: true };
     }
     case 'import_csv': {
       const projectId = projectArgument(args.projectId);

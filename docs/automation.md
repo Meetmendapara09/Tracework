@@ -25,10 +25,12 @@ Register it once per client (paths are examples):
 }
 ```
 
-Available tools: `list_projects`, `get_workspace`, `add_item`, `update_item`,
-`delete_item`, `add_link`, `search` (use `projectId: "*"` for every project),
-`undo`, `history`, `export_brief`, `import_csv`. Every mutation is validated and
-undoable, exactly like the web UI.
+Available tools: `list_projects`, `create_project`, `rename_project`,
+`archive_project`, `get_workspace`, `add_item`, `update_item`, `delete_item`,
+`add_link`, `search` (use `projectId: "*"` for every project), `undo`, `history`,
+`export_brief`, `import_csv`, `list_attachments`, `upload_attachment`,
+`delete_attachment`. Every mutation is validated and undoable, exactly like the
+web UI. Deleting an item also removes its PDF attachments.
 
 ## Option B - HTTP API with curl
 
