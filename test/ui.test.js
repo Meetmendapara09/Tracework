@@ -124,6 +124,10 @@ test('browser UI renders safely, filters tags, maps evidence, and previews CSV b
     await new Promise((resolve) => setTimeout(resolve, 450));
     assert.match(window.document.querySelector('#board').textContent, /Interview reviewers/);
     assert.match(window.document.querySelector('#board').textContent, /Default/);
+    assert.match(window.document.querySelector('#board').innerHTML, /<mark>reviewers<\/mark>/i);
+    assert.equal(window.document.querySelector('#clear-search').hidden, false);
+    click('#clear-search');
+    assert.equal(window.document.querySelector('#search').value, '');
     searchBox.value = '';
     searchBox.dispatchEvent(new window.Event('input', { bubbles: true }));
     await new Promise((resolve) => setTimeout(resolve, 450));

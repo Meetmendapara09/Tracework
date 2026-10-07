@@ -297,6 +297,23 @@ function renderMatrix(query, tag, sort) {
 }
 let searchTimer = null;
 let searchSeq = 0;
+function highlightWords(query) {
+  return query
+    .replace(/"([^"]*)"/g, ' $1 ')
+    .replace(/\b(type|tag|status|is|before|after):/gi, ' ')
+    .split(/\s+/)
+    .map((word) => word.trim())
+    .filter((word) => word.length > 1);
+}
+function highlight(text, words) {
+  const unique = [...new Set(words.map((word) => word.toLowerCase()))].sort((a, b) => b.length - a.length);
+  if (!unique.length) return escapeHTML(text);
+  const pattern = new RegExp(
+    `(${unique.map((word) => escapeHTML(word).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`,
+    'gi',
+  );
+  return escapeHTML(text).replace(pattern, '<mark>$1</mark>');
+}
 async function renderSearchResults(query, tag) {
   const run = ++searchSeq;
   $('#board').classList.remove('single-view', 'review-view', 'matrix-view');
@@ -309,11 +326,12 @@ async function renderSearchResults(query, tag) {
       ? data.results.filter((hit) => (hit.tags || []).some((value) => value.toLocaleLowerCase() === tag))
       : data.results;
     $('#result-count').textContent = `${results.length} result${results.length === 1 ? '' : 's'}`;
+    const words = highlightWords(query);
     $('#board').innerHTML = results.length
       ? `<div class="search-results">${results
           .map(
             (hit) =>
-              `<button class="item-card search-hit" data-open="${escapeHTML(hit.id)}" data-open-project="${escapeHTML(hit.projectId)}" title="Open ${escapeHTML(hit.title)} in ${escapeHTML(hit.projectName)}"><span class="card-top"><span class="card-id">${META[hit.type].icon} &nbsp; ${META[hit.type].label}</span><span class="card-arrow" aria-hidden="true">↗</span></span><strong>${escapeHTML(hit.title)}</strong><span class="card-snippet">${escapeHTML(hit.snippet)}</span><span class="card-foot"><span class="badge muted"><span class="badge-dot"></span>${escapeHTML(hit.projectName)}</span></span></button>`,
+              `<button class="item-card search-hit" data-open="${escapeHTML(hit.id)}" data-open-project="${escapeHTML(hit.projectId)}" title="Open ${escapeHTML(hit.title)} in ${escapeHTML(hit.projectName)}"><span class="card-top"><span class="card-id">${META[hit.type].icon} &nbsp; ${META[hit.type].label}</span><span class="card-arrow" aria-hidden="true">↗</span></span><strong>${highlight(hit.title, words)}</strong><span class="card-snippet">${highlight(hit.snippet, words)}</span><span class="card-foot"><span class="badge muted"><span class="badge-dot"></span>${escapeHTML(hit.projectName)}</span></span></button>`,
           )
           .join('')}</div>`
       : '<div class="empty-state"><div class="empty-art">⌕</div><span class="section-kicker">NO MATCHES</span><h3>Nothing found anywhere.</h3><p>Try fewer words, another tag, or operators like type:, tag:, and is:.</p></div>';
@@ -659,7 +677,14 @@ $('#item-form').addEventListener('submit', async (event) => {
 });
 $('#search').addEventListener('input', () => {
   clearTimeout(searchTimer);
+  $('#clear-search').hidden = !$('#search').value.trim();
   searchTimer = setTimeout(renderBoard, 250);
+});
+$('#clear-search').addEventListener('click', () => {
+  $('#search').value = '';
+  $('#clear-search').hidden = true;
+  renderBoard();
+  $('#search').focus();
 });
 $('#sort').addEventListener('change', renderBoard);
 $('#tag-filter').addEventListener('change', renderBoard);

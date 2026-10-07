@@ -581,6 +581,12 @@ select {
   gap: 9px;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
 }
+mark {
+  background: #f3e9c8;
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
 .review-view .lane-cards {
   grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
 }
