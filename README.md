@@ -1,5 +1,10 @@
 # Tracework
 
+[![Check](https://github.com/Meetmendapara09/Tracework/actions/workflows/ci.yml/badge.svg)](https://github.com/Meetmendapara09/Tracework/actions)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Node](https://img.shields.io/badge/Node-%3E%3D20-brightgreen.svg)](https://nodejs.org)
+[![Local-first](https://img.shields.io/badge/data-local--first-blue.svg)](#data-safety-and-reliability)
+
 **Make the thinking visible.** Tracework is a local-first evidence-to-action desk for research, project planning, investigations, design reviews, and any work where the _why_ matters as much as the _what_. Collect sources, develop claims, record decisions, and follow through on tasks in one connected trail.
 
 Your workspace is a JSON file on your machine. There is no account, API key, database server, build step, telemetry, or external asset/CDN. A few established libraries handle schema validation, CSV parsing, and CSV generation rather than reimplementing those error-prone jobs.
