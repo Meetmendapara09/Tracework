@@ -32,10 +32,20 @@ test('rejects unsupported columns, malformed records, invalid tags, and too many
   assert.throws(() => planBatch(emptyWorkspace(), parseItemsCsv('title,tags\nA,Same|same')), /Row 2: tags/);
 });
 
+test('citation columns round trip through CSV and appear in exports', () => {
+  const rows = parseItemsCsv('type,title,doi,authors,year,venue\nsource,Paper,10.1234/example,"Last, First",2024,Journal of Tests');
+  assert.deepEqual(rows[0].item.citation, { doi: '10.1234/example', authors: 'Last, First', year: '2024', venue: 'Journal of Tests' });
+  assert.equal(planBatch(emptyWorkspace(), rows).add, 1);
+  const workspace = { nodes: [{ type: 'source', title: 'Paper', body: '', url: '', status: '', due: '', tags: [], citation: rows[0].item.citation }] };
+  const csv = exportItemsCsv(workspace);
+  assert.match(csv, /10\.1234\/example/);
+  assert.equal(parseItemsCsv(csv)[0].item.citation.doi, '10.1234/example');
+});
+
 test('CSV export quotes content and neutralizes spreadsheet formulas', () => {
   const workspace = { nodes: [{ type: 'source', title: '=2+2', body: '+COMMAND, "quoted"', url: 'https://example.org', status: '', due: '', tags: ['Research'] }] };
   const csv = exportItemsCsv(workspace);
   assert.match(csv, /"'\+COMMAND, ""quoted"""/);
   assert.equal(parseItemsCsv(csv)[0].item.title, "'=2+2");
-  assert.equal(CSV_TEMPLATE.trim(), 'type,title,body,url,status,due,tags');
+  assert.equal(CSV_TEMPLATE.trim(), 'type,title,body,url,status,due,tags,doi,authors,year,venue');
 });

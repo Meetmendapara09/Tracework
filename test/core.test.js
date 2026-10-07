@@ -46,6 +46,11 @@ test('tags are validated, editable, and old backups migrate without losing data'
   await assert.rejects(store.updateNode(1, state.nodes[0].id, { tags: ['Methods', 'methods'] }), { status: 400 });
   state = await store.updateNode(1, state.nodes[0].id, { tags: ['Reviewed'] });
   assert.match(exportMarkdown(state), /Tags: Reviewed/);
+  state = await store.updateNode(state.revision, state.nodes[0].id, { citation: { doi: '10.1234/example', authors: 'Last, First', year: '2024', venue: 'Journal' } });
+  const brief = exportMarkdown(state);
+  assert.match(brief, /DOI: 10\.1234\/example/);
+  assert.match(brief, /Authors: Last, First/);
+  assert.match(brief, /Published: Journal, 2024/);
   const legacy = structuredClone(state);
   for (const node of legacy.nodes) delete node.tags;
   state = await store.replace(state.revision, legacy);

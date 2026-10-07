@@ -9,8 +9,8 @@ A workspace is `{ revision, nodes, links }`. All identifiers are stable strings.
 | Type | Meaning | Status values | Extra field |
 | --- | --- | --- | --- |
 | `source` | Reference, observation, interview, artifact | `""` | HTTP(S) `url` |
-| `claim` | Interpretation or hypothesis | `open`, `reviewed` | — |
-| `decision` | Chosen direction and rationale | `proposed`, `accepted`, `rejected` | — |
+| `claim` | Interpretation or hypothesis | `open`, `reviewed` | - |
+| `decision` | Chosen direction and rationale | `proposed`, `accepted`, `rejected` | - |
 | `task` | Follow-up action | `todo`, `doing`, `done` | ISO calendar `due` date (`YYYY-MM-DD`) |
 
 Links have `{ id, from, to, kind }`. Legal edges are `source → claim` (`supports`, `challenges`), `claim → decision` (`informs`), and `decision → task` (`advances`). The same pair can have both `supports` and `challenges` links; duplicate **identical** edges are prohibited. Deleting a node removes all adjacent edges.
@@ -32,21 +32,32 @@ These rules highlight where a human should review reasoning; they do not measure
 
 Startup validates the file rather than silently resetting corrupted or unrecognized data. Import validates the entire candidate workspace before committing it. CSV intake uses `csv-parse` for quoted records/BOM/CRLF, Zod for item fields, and the same deduplication plan for preview and the queued commit. It recalculates the plan at commit time. CSV export uses `csv-stringify` and protects spreadsheet users from formula injection. API errors are JSON objects with an `error` message.
 
+## Projects, history, attachments, and search
+
+- **Projects** (`src/projects.js`): each project is an isolated workspace file plus an entry in a `projects.json` index. The legacy data file becomes the default project, so existing setups migrate with no action. Routes take `?project=<id>` and default to the default project. Archived projects stay readable and writable; deleting a project is deliberately unsupported, so data cannot be removed by accident through the API.
+- **History** (`src/history.js`): every workspace mutation stores the pre-change snapshot (bounded to the latest 50 per project) in a sidecar file. Undo restores the latest snapshot through the normal revision-checked replace, and records the undo itself, so a second undo redoes. History recording never fails a save: if it errors, the mutation result is still returned.
+- **Attachments** (`src/attachments.js`): PDFs live outside the workspace JSON in a per-project directory with a manifest, so JSON backups stay small and portable. Files are PDF-signature-checked, size-capped at 15 MiB, stored under random UUID names, and orphaned blobs are swept on startup and after writes. Deleting an item removes its attachments.
+- **Search** (`src/search.js`, MiniSearch): prefix and fuzzy full-text ranking over title, body, tags, URL, and citation fields, with `type:`, `tag:`, `status:`, `is:` (unverified/contested/gap), `before:`/`after:`, and quoted-phrase operators. The browser keeps its instant client-side filter; `/api/search` serves automation and future UI work.
+
 ## Limits and trade-offs
 
 - One server process per data file. The revision queue is in memory; multiple processes could overwrite each other. For collaboration, move the state to a transactional database and add authorization.
 - Each mutation rewrites the file. This is simple and auditable for a personal workspace but not suitable for very large datasets. Limits: 2,000 nodes, 6,000 links, 32 MiB request body; CSV imports are limited to 500 rows and 8 MiB. Exports can be larger than a browser's available memory on low-end devices.
 - The browser fetches and renders the whole workspace. The evidence matrix shows at most 50 claims and the 24 most connected sources at once; its health labels still use the full graph. The board does not paginate. Larger limits would need server-side queries and pagination.
 - Atomic rename protects against partial replacement, **not** against all power-loss scenarios (there is no explicit file/directory `fsync`), accidental deletion, malware, or hardware failure. Back up the JSON export or data file regularly.
-- URLs are references only. The server never fetches them. No AI calls, telemetry, external CDNs, cookies, or external fonts are used. Runtime packages (`zod`, `csv-parse`, `csv-stringify`) are installed locally through the lockfile; `jsdom` is used for browser-DOM tests only.
+- URLs are references only. The server never fetches them. No AI calls, telemetry, external CDNs, cookies, or external fonts are used. Runtime packages (`zod`, `csv-parse`, `csv-stringify`, `minisearch`) are installed locally through the lockfile; `jsdom` is used for browser-DOM tests only.
 
 ## Project layout
 
 ```text
-server.js              HTTP API, static file allowlist, security headers
+server.js              HTTP API, project scoping, history/undo, search, attachments
 src/core.js            validation, graph logic, revisioned persistence, export
-src/sample.js          clearly fictional starting workspace
+src/projects.js        multi-project index and isolated workspace stores
+src/history.js         bounded, crash-safe undo snapshots per project
+src/attachments.js     local PDF storage with manifests and orphan cleanup
+src/search.js          ranked full-text search with evidence-state filters
 src/csv.js             CSV parser, template, spreadsheet-safe export
+src/sample.js          clearly fictional starting workspace
 public/index.html      semantic UI structure
 public/app.js          UI state and interaction handlers
 public/styles.css      responsive visual design

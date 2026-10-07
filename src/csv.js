@@ -2,7 +2,7 @@ import { parse } from 'csv-parse/sync';
 import { stringify } from 'csv-stringify/sync';
 import { AppError, MAX_IMPORT_ROWS } from './core.js';
 
-export const CSV_COLUMNS = ['type', 'title', 'body', 'url', 'status', 'due', 'tags'];
+export const CSV_COLUMNS = ['type', 'title', 'body', 'url', 'status', 'due', 'tags', 'doi', 'authors', 'year', 'venue'];
 const allowed = new Set([...CSV_COLUMNS, 'notes']);
 const MAX_CSV_BYTES = 8 * 1024 * 1024;
 
@@ -28,7 +28,7 @@ export function parseItemsCsv(csv) {
   if (records.length - 1 > MAX_IMPORT_ROWS) throw new AppError(400, `Import at most ${MAX_IMPORT_ROWS} rows at a time`);
   const headers = records[0].record.map(value => value.trim().toLowerCase());
   if (!headers.includes('title') || headers.some(header => !allowed.has(header)) || new Set(headers).size !== headers.length || (headers.includes('body') && headers.includes('notes'))) {
-    throw new AppError(400, 'CSV needs a title column and unique, supported headers: type,title,body,url,status,due,tags (notes can replace body)');
+    throw new AppError(400, 'CSV needs a title column and unique, supported headers: type,title,body,url,status,due,tags,doi,authors,year,venue (notes can replace body)');
   }
   if (records.length === 1) throw new AppError(400, 'CSV has no items');
   return records.slice(1).map(({ record, info }) => {
@@ -40,6 +40,12 @@ export function parseItemsCsv(csv) {
     if (values.status) item.status = values.status.toLowerCase();
     if (values.due) item.due = values.due;
     if (values.tags) item.tags = values.tags.split('|').map(tag => tag.trim());
+    const citation = {};
+    if (values.doi) citation.doi = values.doi;
+    if (values.authors) citation.authors = values.authors;
+    if (values.year) citation.year = values.year;
+    if (values.venue) citation.venue = values.venue;
+    if (Object.keys(citation).length) item.citation = citation;
     return { line: info.lines, item };
   });
 }
@@ -53,7 +59,7 @@ function safeCell(value) {
 export function exportItemsCsv(workspace) {
   return stringify([
     CSV_COLUMNS,
-    ...workspace.nodes.map(node => [node.type, node.title, node.body, node.url, node.status, node.due, (node.tags || []).join('|')].map(safeCell)),
+    ...workspace.nodes.map(node => [node.type, node.title, node.body, node.url, node.status, node.due, (node.tags || []).join('|'), node.citation?.doi || '', node.citation?.authors || '', node.citation?.year || '', node.citation?.venue || ''].map(safeCell)),
   ], { bom: true });
 }
 export const CSV_TEMPLATE = stringify([CSV_COLUMNS]);

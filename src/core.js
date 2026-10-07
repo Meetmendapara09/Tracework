@@ -44,14 +44,36 @@ const urlSchema = z.string().trim().max(2048).refine(value => {
   catch { return false; }
 }, 'URL must be an http(s) URL');
 const dateSchema = z.string().trim().max(10).refine(validDate, 'Due must be a valid YYYY-MM-DD date');
+export const EMPTY_CITATION = Object.freeze({ doi: '', authors: '', year: '', venue: '' });
+const citationSchema = z.strictObject({
+  doi: z.string().trim().max(200)
+    .transform(value => value.replace(/^https?:\/\/(?:dx\.)?doi\.org\//i, '').trim().toLowerCase())
+    .refine(value => !value || /^10\.\d{4,9}\/\S+$/i.test(value), 'Use a valid DOI, e.g. 10.1234/example')
+    .optional(),
+  authors: z.string().trim().max(500).optional(),
+  year: z.string().trim().regex(/^(?:\d{4})?$/, 'Use a four-digit year').optional(),
+  venue: z.string().trim().max(200).optional(),
+});
 const schemas = Object.fromEntries(TYPES.map(type => [type, z.strictObject({
   title: z.string().trim().min(1, 'Title is required').max(160),
   body: z.string().trim().max(10000).optional(),
   tags: tagsSchema.optional(),
   status: z.enum(STATUSES[type]).optional(),
-  ...(type === 'source' ? { url: urlSchema.optional() } : {}),
+  ...(type === 'source' ? {
+    url: urlSchema.optional(),
+    citation: citationSchema.optional(),
+  } : {}),
   ...(type === 'task' ? { due: dateSchema.optional() } : {}),
 })]));
+export function normalizeCitation(input = {}) {
+  const parsed = citationSchema.safeParse(input ?? {});
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    throw new AppError(400, `citation.${issue.path.join('.')}: ${issue.message}`);
+  }
+  return { ...EMPTY_CITATION, ...parsed.data };
+}
+
 export function validateNodeFields(input, type, partial = false) {
   if (!TYPES.includes(type)) throw new AppError(400, 'Invalid item type');
   const parsed = (partial ? schemas[type].partial() : schemas[type]).safeParse(input);
@@ -59,7 +81,9 @@ export function validateNodeFields(input, type, partial = false) {
     const issue = parsed.error.issues[0];
     throw new AppError(400, `${issue.path.join('.') || 'item'}: ${issue.message}`);
   }
-  return parsed.data;
+  const clean = parsed.data;
+  if (clean.citation) clean.citation = normalizeCitation(clean.citation);
+  return clean;
 }
 function validateLink(input, nodes) {
   keysOnly(input, ['from', 'to', 'kind']);
@@ -80,12 +104,13 @@ export function validateWorkspace(input) {
   if (!Array.isArray(input.nodes) || !Array.isArray(input.links) || input.nodes.length > MAX_NODES || input.links.length > MAX_LINKS) throw new AppError(400, 'Invalid workspace size');
   const ids = new Set();
   const nodes = input.nodes.map(node => {
-    keysOnly(node, ['id', 'type', 'title', 'body', 'url', 'status', 'due', 'tags', 'createdAt', 'updatedAt']);
+    keysOnly(node, ['id', 'type', 'title', 'body', 'url', 'status', 'due', 'tags', 'citation', 'createdAt', 'updatedAt']);
     if (typeof node.id !== 'string' || !/^[\w-]{1,80}$/.test(node.id) || ids.has(node.id) || !TYPES.includes(node.type)) throw new AppError(400, 'Invalid or duplicate node ID/type');
     ids.add(node.id);
     const validTime = value => typeof value === 'string' && !Number.isNaN(Date.parse(value)) && new Date(value).toISOString() === value;
     if (!validTime(node.createdAt) || !validTime(node.updatedAt)) throw new AppError(400, 'Invalid timestamp');
     const fields = { title: node.title, body: node.body ?? '', tags: node.tags === undefined ? [] : node.tags };
+    if (node.type === 'source') fields.citation = node.citation ?? {};
     if (node.url !== undefined && (node.type === 'source' || node.url !== '')) fields.url = node.url;
     if (node.status !== undefined) fields.status = node.status;
     if (node.due !== undefined && (node.type === 'task' || node.due !== '')) fields.due = node.due;
@@ -106,7 +131,7 @@ export function validateWorkspace(input) {
 // The same plan is used for previews and for the queued commit, so duplicates
 // are recalculated against the actual revision being written.
 export function planBatch(workspace, rows) {
-  if (!Array.isArray(rows) || !rows.length || rows.length > MAX_IMPORT_ROWS) throw new AppError(400, `Import 1–${MAX_IMPORT_ROWS} rows at a time`);
+  if (!Array.isArray(rows) || !rows.length || rows.length > MAX_IMPORT_ROWS) throw new AppError(400, `Import 1-${MAX_IMPORT_ROWS} rows at a time`);
   const identity = node => node.type === 'source' && node.url
     ? `source:url:${new URL(node.url).href}`
     : `${node.type}:title:${node.title.toLocaleLowerCase()}`;
@@ -175,13 +200,14 @@ export function createStore(file, initial = emptyWorkspace()) {
     init, snapshot,
     addNode(expected, input) {
       return mutate(expected, next => {
-        keysOnly(input, ['type', 'title', 'body', 'url', 'status', 'due', 'tags']);
+        keysOnly(input, ['type', 'title', 'body', 'url', 'status', 'due', 'tags', 'citation']);
         if (!TYPES.includes(input.type)) throw new AppError(400, 'Invalid item type');
         if (next.nodes.length >= MAX_NODES) throw new AppError(400, 'Workspace is full');
         const { type, ...fields } = input;
+        if (type === 'source' && !('citation' in fields)) fields.citation = {};
         const clean = validateNodeFields(fields, type);
         const now = new Date().toISOString();
-        next.nodes.push({ id: randomUUID(), type, title: '', body: '', url: '', due: '', tags: [], status: STATUSES[type][0], ...clean, createdAt: now, updatedAt: now });
+        next.nodes.push({ id: randomUUID(), type, title: '', body: '', url: '', due: '', tags: [], status: STATUSES[type][0], ...clean, createdAt: now, updatedAt: now, ...(type === 'source' ? { citation: clean.citation ?? { ...EMPTY_CITATION } } : {}) });
       });
     },
     updateNode(expected, id, fields) {
@@ -260,6 +286,9 @@ export function exportMarkdown(workspace) {
       if (node.due) lines.push(`Due: ${node.due}`);
       if (node.tags?.length) lines.push(`Tags: ${node.tags.map(md).join(', ')}`);
       if (node.url) lines.push(`URL: ${node.url}`);
+      if (node.citation?.doi) lines.push(`DOI: ${node.citation.doi}`);
+      if (node.citation?.authors) lines.push(`Authors: ${md(node.citation.authors)}`);
+      if (node.citation?.year || node.citation?.venue) lines.push(`Published: ${md([node.citation.venue, node.citation.year].filter(Boolean).join(', '))}`);
       if (type === 'claim') lines.push(`Evidence: ${claimHealth(workspace, node.id).label}`);
       if (type === 'decision') lines.push(`Readiness: ${decisionHealth(workspace, node.id)}`);
       if (node.body) lines.push('', ...node.body.split('\n').map(line => `> ${line}`));

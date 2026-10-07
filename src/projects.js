@@ -14,7 +14,7 @@ function projectId(id) {
 function projectName(name) {
   if (typeof name !== 'string') throw new AppError(400, 'Invalid project name');
   const clean = name.trim();
-  if (!clean || clean.length > 100 || /[\x00-\x1f\x7f]/.test(clean)) throw new AppError(400, 'Project name must be 1–100 characters without control characters');
+  if (!clean || clean.length > 100 || /[\x00-\x1f\x7f]/.test(clean)) throw new AppError(400, 'Project name must be 1-100 characters without control characters');
   return clean;
 }
 
@@ -116,6 +116,10 @@ export async function createProjectManager({ dataFile, initial } = {}) {
 
   return {
     defaultId: DEFAULT_ID,
+    fileFor(id) {
+      find(id);
+      return id === DEFAULT_ID ? workspaceFile : join(projectDir, `${id}.json`);
+    },
     list() { return projects.map(project => ({ ...project })); },
     getStore,
     async create(name) {

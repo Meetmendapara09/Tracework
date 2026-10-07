@@ -19,7 +19,7 @@ npm test        # run only the test suite
 
 ## Adding a new feature
 
-1. **Discuss** the idea first – open an issue or discussion so maintainers can give feedback.
+1. **Discuss** the idea first - open an issue or discussion so maintainers can give feedback.
 2. **Fork** the repository and create a branch from `main`.
 3. **Implement** the feature following the existing patterns:
    - Use the `zod` schema for validation (see `src/core.js`).
