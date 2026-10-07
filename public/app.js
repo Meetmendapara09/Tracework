@@ -1,0 +1,239 @@
+const $ = selector => document.querySelector(selector);
+const TYPES = ['source', 'claim', 'decision', 'task'];
+const META = {
+  source: { plural: 'Sources', label: 'SOURCE', icon: '◧', hint: 'What did you observe?' },
+  claim: { plural: 'Claims', label: 'CLAIM', icon: '◇', hint: 'What does it suggest?' },
+  decision: { plural: 'Decisions', label: 'DECISION', icon: '◈', hint: 'What will you do?' },
+  task: { plural: 'Tasks', label: 'TASK', icon: '☑', hint: 'What happens next?' },
+};
+const RULES = { supports: ['source', 'claim'], challenges: ['source', 'claim'], informs: ['claim', 'decision'], advances: ['decision', 'task'] };
+const STATUSES = { source: [], claim: ['open', 'reviewed'], decision: ['proposed', 'accepted', 'rejected'], task: ['todo', 'doing', 'done'] };
+let workspace = { revision: 0, nodes: [], links: [] };
+let view = 'all';
+let selected = null;
+let editing = null;
+let toastTimer;
+const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
+const byId = id => workspace.nodes.find(node => node.id === id);
+const related = id => workspace.links.filter(link => link.from === id || link.to === id);
+const statusLabel = status => ({ todo: 'To do', doing: 'In progress', done: 'Done', open: 'Open', reviewed: 'Reviewed', proposed: 'Proposed', accepted: 'Accepted', rejected: 'Rejected' })[status] || status;
+function claimHealth(id) {
+  const links = workspace.links.filter(link => link.to === id);
+  const supports = links.filter(link => link.kind === 'supports').length;
+  const challenges = links.filter(link => link.kind === 'challenges').length;
+  return { supports, challenges, label: challenges ? 'Contested' : supports ? 'Supported' : 'Unverified', tone: challenges ? 'warning' : supports ? 'good' : 'muted' };
+}
+function decisionHealth(id) {
+  const claims = workspace.links.filter(link => link.to === id && link.kind === 'informs').map(link => link.from);
+  if (!claims.length) return { label: 'No claims linked', tone: 'muted' };
+  if (claims.some(id => claimHealth(id).challenges)) return { label: 'Needs review', tone: 'warning' };
+  if (claims.some(id => !claimHealth(id).supports)) return { label: 'Evidence gap', tone: 'warning' };
+  return { label: 'Evidence linked', tone: 'good' };
+}
+function needsReview(node) {
+  return node.type === 'claim' ? (!claimHealth(node.id).supports || !!claimHealth(node.id).challenges) : node.type === 'decision' && decisionHealth(node.id).label !== 'Evidence linked';
+}
+function health(node) {
+  if (node.type === 'claim') return claimHealth(node.id);
+  if (node.type === 'decision') return decisionHealth(node.id);
+  if (node.type === 'task') return { label: statusLabel(node.status), tone: node.status === 'done' ? 'good' : 'muted' };
+  return { label: related(node.id).length ? `${related(node.id).length} connections` : 'Not connected', tone: related(node.id).length ? 'good' : 'muted' };
+}
+function toast(message, error = false) {
+  const el = $('#toast');
+  el.textContent = message;
+  el.className = `toast visible ${error ? 'error' : ''}`;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.className = 'toast', 4400);
+}
+async function api(path, method = 'GET', body) {
+  const response = await fetch(path, { method, headers: { ...(method !== 'GET' ? { 'If-Match': String(workspace.revision) } : {}), ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
+  const result = await response.json();
+  if (!response.ok) {
+    if (response.status === 409 && result.error?.startsWith('Workspace changed')) {
+      workspace = await api('/api/workspace');
+      render();
+      throw new Error('The workspace changed in another tab. Latest changes loaded; please try again.');
+    }
+    throw new Error(result.error || 'Something went wrong');
+  }
+  return result;
+}
+async function change(path, method, body, message) {
+  let saved = false;
+  try {
+    $('#sync-state').textContent = 'Saving…';
+    workspace = await api(path, method, body);
+    saved = true;
+    render();
+    toast(message);
+  } catch (error) { toast(error.message, true); }
+  finally { $('#sync-state').innerHTML = saved ? '<span class="sync-dot"></span> Saved locally' : 'Not saved — retry'; }
+}
+function renderMetrics() {
+  const claims = workspace.nodes.filter(n => n.type === 'claim');
+  const decisions = workspace.nodes.filter(n => n.type === 'decision');
+  const tasks = workspace.nodes.filter(n => n.type === 'task');
+  const gaps = claims.filter(n => !claimHealth(n.id).supports).length;
+  const contested = claims.filter(n => claimHealth(n.id).challenges).length;
+  const cards = [
+    { number: workspace.nodes.length, label: 'Items in the trail', detail: `${workspace.links.length} connections made`, icon: '✳', style: 'ink' },
+    { number: gaps, label: 'Evidence gaps', detail: 'Claims without support', icon: '◇', style: gaps ? 'amber' : 'green' },
+    { number: contested, label: 'Points of tension', detail: 'Claims with counterevidence', icon: '◐', style: contested ? 'rose' : 'green' },
+    { number: `${tasks.filter(n => n.status === 'done').length}/${tasks.length}`, label: 'Actions completed', detail: `${decisions.length} decisions on record`, icon: '↗', style: 'green' },
+  ];
+  $('#metrics').innerHTML = cards.map(card => `<article class="metric metric-${card.style}"><div class="metric-top"><span>${escapeHTML(card.label)}</span><span class="metric-icon">${card.icon}</span></div><strong>${card.number}</strong><small>${escapeHTML(card.detail)}</small></article>`).join('');
+  for (const type of ['all', ...TYPES, 'review']) {
+    const el = document.querySelector(`[data-count="${type}"]`);
+    el.textContent = type === 'all' ? workspace.nodes.length : workspace.nodes.filter(node => type === 'review' ? needsReview(node) : node.type === type).length;
+  }
+}
+function card(node) {
+  const badge = health(node);
+  const snippet = node.body || (node.type === 'source' ? node.url : 'Add notes to capture the context behind this item.');
+  return `<button class="item-card ${selected === node.id ? 'selected' : ''}" data-open="${escapeHTML(node.id)}" aria-label="Open ${escapeHTML(node.type)}: ${escapeHTML(node.title)}"><span class="card-top"><span class="card-id">${META[node.type].icon} &nbsp; ${META[node.type].label}</span><span class="card-arrow" aria-hidden="true">↗</span></span><strong>${escapeHTML(node.title)}</strong><span class="card-snippet">${escapeHTML(snippet)}</span><span class="card-foot"><span class="badge ${badge.tone}"><span class="badge-dot"></span>${escapeHTML(badge.label)}</span><span class="connection-count" title="Connections">⌁ ${related(node.id).length}</span></span></button>`;
+}
+function renderBoard() {
+  const query = $('#search').value.trim().toLowerCase();
+  const sort = $('#sort').value;
+  const matches = node => (view === 'all' || (view === 'review' ? needsReview(node) : node.type === view)) && (!query || `${node.title} ${node.body} ${node.url} ${node.status}`.toLowerCase().includes(query));
+  const filtered = workspace.nodes.filter(matches);
+  $('#result-count').textContent = `${filtered.length} item${filtered.length === 1 ? '' : 's'}`;
+  $('#board-title').firstChild.textContent = view === 'all' ? 'Your work, connected ' : view === 'review' ? 'Questions worth revisiting ' : `${META[view].plural}, in context `;
+  const sorted = nodes => [...nodes].sort((a, b) => sort === 'title' ? a.title.localeCompare(b.title) : sort === 'oldest' ? a.createdAt.localeCompare(b.createdAt) : b.updatedAt.localeCompare(a.updatedAt));
+  $('#board').classList.toggle('single-view', view !== 'all' && view !== 'review');
+  $('#board').classList.toggle('review-view', view === 'review');
+  $('#board').innerHTML = filtered.length ? TYPES.filter(type => view === 'all' || view === 'review' && ['claim', 'decision'].includes(type) || type === view).map(type => {
+    const nodes = sorted(filtered.filter(node => node.type === type));
+    return `<div class="lane lane-${type}"><div class="lane-head"><div><span class="lane-icon">${META[type].icon}</span><span class="lane-name">${META[type].plural}</span></div><span class="lane-total">${nodes.length.toString().padStart(2, '0')}</span></div><p class="lane-hint">${META[type].hint}</p><div class="lane-cards">${nodes.map(card).join('') || '<p class="lane-empty">Nothing here yet.</p>'}</div><button class="lane-add" data-add="${type}"><span>＋</span> Add ${type}</button></div>`;
+  }).join('') : `<div class="empty-state"><div class="empty-art">✳</div><span class="section-kicker">${view === 'review' ? 'ALL CAUGHT UP' : 'A GOOD PLACE TO BEGIN'}</span><h3>${query ? 'No matching items.' : view === 'review' ? 'Nothing needs review.' : 'Every trail starts somewhere.'}</h3><p>${query ? 'Try a different search, or switch views.' : view === 'review' ? 'Every decision has linked evidence and every claim has support without counterevidence. Keep questioning as you go.' : 'Add a source, or load a fictional example to explore how the pieces fit together.'}</p>${!query && view !== 'review' ? `<div class="empty-actions"><button class="primary-button" data-add="${view === 'all' ? 'source' : view}">＋ Add ${view === 'all' ? 'a source' : 'an item'}</button>${!workspace.nodes.length ? '<button class="secondary-button" id="load-sample">Explore an example</button>' : ''}</div>` : ''}</div>`;
+}
+function optionsFor(node) {
+  const choices = [];
+  for (const [kind, [fromType, toType]] of Object.entries(RULES)) {
+    if (node.type !== fromType && node.type !== toType) continue;
+    for (const other of workspace.nodes.filter(n => n.type === (node.type === fromType ? toType : fromType))) {
+      const from = node.type === fromType ? node.id : other.id;
+      const to = node.type === fromType ? other.id : node.id;
+      if (workspace.links.some(l => l.from === from && l.to === to && l.kind === kind)) continue;
+      choices.push({ kind, from, to, other });
+    }
+  }
+  return choices;
+}
+function renderInspector() {
+  const panel = $('#inspector');
+  const node = byId(selected);
+  if (!node) {
+    selected = null;
+    panel.innerHTML = '<div class="inspector-placeholder"><div class="placeholder-art" aria-hidden="true">✳</div><span class="section-kicker">FOLLOW THE THREAD</span><h2>Every idea has<br>a history.</h2><p>Select a card to explore its context, connect it to other work, and see the evidence behind it.</p><div class="placeholder-keys"><kbd> N </kbd> new item <span>·</span> <kbd> / </kbd> search</div></div>';
+    return;
+  }
+  const links = related(node.id);
+  const badge = health(node);
+  const choices = optionsFor(node);
+  panel.innerHTML = `<div class="inspector-body"><div class="inspector-top"><span class="section-kicker">ITEM DETAILS / ${META[node.type].label}</span><button class="icon-button" data-close-inspector aria-label="Close details">✕</button></div><div class="detail-type detail-${node.type}"><span>${META[node.type].icon}</span> ${META[node.type].label}</div><h2>${escapeHTML(node.title)}</h2><div class="detail-meta"><span class="badge ${badge.tone}"><span class="badge-dot"></span>${escapeHTML(badge.label)}</span>${node.status ? `<span class="meta-status">${escapeHTML(statusLabel(node.status))}</span>` : ''}</div><div class="detail-section"><div class="detail-label">CONTEXT</div><p class="detail-body">${escapeHTML(node.body || 'No notes yet. Add context to make this item more useful to your future self.')}</p>${node.url ? `<a class="source-url" href="${escapeHTML(node.url)}" target="_blank" rel="noopener noreferrer">Open source ↗</a>` : ''}${node.due ? `<p class="due-date">Due ${escapeHTML(node.due)}</p>` : ''}</div><div class="detail-section"><div class="detail-label">CONNECTIONS <span>${links.length.toString().padStart(2, '0')}</span></div>${links.length ? links.map(link => { const other = byId(link.from === node.id ? link.to : link.from); return `<div class="link-row"><button data-open="${escapeHTML(other.id)}" title="Open connected item"><span class="link-direction">${link.from === node.id ? '↗' : '↙'}</span><span class="link-text"><small>${escapeHTML(link.kind.toUpperCase())} · ${META[other.type].label}</small><strong>${escapeHTML(other.title)}</strong></span></button><button class="remove-link" data-remove-link="${escapeHTML(link.id)}" aria-label="Remove connection to ${escapeHTML(other.title)}">×</button></div>`; }).join('') : '<p class="detail-muted">No connections yet. Link this item to show how the work fits together.</p>'}</div><div class="detail-section"><div class="detail-label">CONNECT THE DOTS</div>${choices.length ? `<form id="link-form"><label class="sr-only" for="link-choice">Choose a connection</label><select id="link-choice" name="choice">${choices.map(c => `<option value="${c.from}|${c.to}|${c.kind}">${escapeHTML(c.kind)} ${c.from === node.id ? '→' : '←'} ${escapeHTML(c.other.title)}</option>`).join('')}</select><button class="secondary-button" type="submit">＋ Add connection</button></form>` : '<p class="detail-muted">Add an item in a neighboring stage to connect it here.</p>'}</div><div class="inspector-actions"><button class="secondary-button" id="edit-item">Edit item</button><button class="delete-button" id="delete-item">Delete</button></div></div>`;
+}
+function render() {
+  $('#breadcrumb-view').textContent = view === 'all' ? 'Overview' : view === 'review' ? 'Review queue' : META[view].plural;
+  $('#page-title').innerHTML = view === 'all' ? 'Make the thinking <em>visible.</em>' : view === 'review' ? 'Stay curious. <em>Look closer.</em>' : `${META[view].plural}, <em>in context.</em>`;
+  $('#page-subtitle').textContent = view === 'all' ? 'From raw sources to considered decisions. Keep the why connected to what happens next.' : view === 'review' ? 'Unverified claims, counterevidence, and decisions that need a second look.' : META[view].hint + ' Connect it to the wider picture.';
+  document.querySelectorAll('[data-view]').forEach(button => { button.classList.toggle('active', button.dataset.view === view); button.setAttribute('aria-current', button.dataset.view === view ? 'page' : 'false'); });
+  renderMetrics(); renderBoard(); renderInspector();
+}
+function openDialog(type = 'source', node = null) {
+  editing = node?.id || null;
+  const form = $('#item-form');
+  form.reset();
+  $('#field-type').disabled = !!node;
+  $('#field-type').value = node?.type || type;
+  form.elements.title.value = node?.title || '';
+  form.elements.body.value = node?.body || '';
+  form.elements.url.value = node?.url || '';
+  form.elements.due.value = node?.due || '';
+  updateFields(node?.status);
+  $('#dialog-title').textContent = node ? 'Edit item' : 'New item';
+  $('#submit-item').innerHTML = node ? 'Save changes <span>↗</span>' : 'Create item <span>↗</span>';
+  $('#item-dialog').showModal();
+  form.elements.title.focus();
+}
+function updateFields(status) {
+  const type = $('#field-type').value;
+  $('.source-field').hidden = type !== 'source';
+  $('.task-field').hidden = type !== 'task';
+  $('.status-field').hidden = type === 'source';
+  $('#field-status').innerHTML = STATUSES[type].map(value => `<option value="${value}" ${value === status ? 'selected' : ''}>${statusLabel(value)}</option>`).join('');
+}
+$('#navigation').addEventListener('click', event => {
+  const button = event.target.closest('[data-view]');
+  if (button) { view = button.dataset.view; render(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+});
+$('#board').addEventListener('click', event => {
+  const add = event.target.closest('[data-add]');
+  const open = event.target.closest('[data-open]');
+  if (add) openDialog(add.dataset.add);
+  else if (open) { selected = open.dataset.open; renderBoard(); renderInspector(); }
+  else if (event.target.closest('#load-sample')) change('/api/sample', 'POST', undefined, 'Example workspace loaded');
+});
+$('#inspector').addEventListener('click', event => {
+  const open = event.target.closest('[data-open]');
+  const remove = event.target.closest('[data-remove-link]');
+  if (open) { selected = open.dataset.open; renderBoard(); renderInspector(); }
+  else if (remove) change(`/api/links/${encodeURIComponent(remove.dataset.removeLink)}`, 'DELETE', undefined, 'Connection removed');
+  else if (event.target.closest('[data-close-inspector]')) { selected = null; renderBoard(); renderInspector(); }
+  else if (event.target.closest('#edit-item')) openDialog('source', byId(selected));
+  else if (event.target.closest('#delete-item') && confirm('Delete this item and all its connections? This cannot be undone.')) {
+    const id = selected; selected = null; change(`/api/nodes/${encodeURIComponent(id)}`, 'DELETE', undefined, 'Item deleted');
+  }
+});
+$('#inspector').addEventListener('submit', event => {
+  if (event.target.id !== 'link-form') return;
+  event.preventDefault();
+  const [from, to, kind] = new FormData(event.target).get('choice').split('|');
+  change('/api/links', 'POST', { from, to, kind }, 'Connection added');
+});
+$('#new-item-top').addEventListener('click', () => openDialog(TYPES.includes(view) ? view : 'source'));
+$('#field-type').addEventListener('change', () => updateFields());
+$('#close-dialog').addEventListener('click', () => $('#item-dialog').close());
+$('#cancel-dialog').addEventListener('click', () => $('#item-dialog').close());
+$('#item-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const form = event.target;
+  if (!form.reportValidity()) return;
+  const type = $('#field-type').value;
+  const data = { title: form.elements.title.value, body: form.elements.body.value };
+  if (type === 'source') data.url = form.elements.url.value;
+  if (type === 'task') data.due = form.elements.due.value;
+  if (type !== 'source') data.status = form.elements.status.value;
+  if (!editing) data.type = type;
+  const id = editing;
+  $('#item-dialog').close();
+  await change(id ? `/api/nodes/${encodeURIComponent(id)}` : '/api/nodes', id ? 'PATCH' : 'POST', data, id ? 'Item updated' : 'Item added to the trail');
+});
+$('#search').addEventListener('input', renderBoard);
+$('#sort').addEventListener('change', renderBoard);
+$('#reset-button').addEventListener('click', async () => {
+  if (!confirm('Start a blank workspace? Export a JSON backup first if you want to keep your current work.')) return;
+  selected = null; view = 'all'; $('#search').value = '';
+  await change('/api/workspace', 'PUT', { nodes: [], links: [] }, 'Blank workspace ready');
+});
+$('#import-button').addEventListener('click', () => $('#import-file').click());
+$('#import-file').addEventListener('change', async event => {
+  const file = event.target.files[0];
+  event.target.value = '';
+  if (!file) return;
+  if (file.size > 32 * 1024 * 1024) { toast('Backup must be under 32 MB', true); return; }
+  try {
+    const data = JSON.parse(await file.text());
+    if (!confirm('Replace the current workspace with this backup? Export a backup first if needed.')) return;
+    selected = null; await change('/api/workspace', 'PUT', data, 'Workspace imported');
+  } catch { toast('This file is not valid JSON', true); }
+});
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && !$('#item-dialog').open && selected) { selected = null; renderBoard(); renderInspector(); }
+  if (event.metaKey || event.ctrlKey || event.altKey || event.target.closest('input,textarea,select,[contenteditable],dialog')) return;
+  if (event.key === '/') { event.preventDefault(); $('#search').focus(); }
+  if (event.key.toLowerCase() === 'n') { event.preventDefault(); openDialog(TYPES.includes(view) ? view : 'source'); }
+});
+try { workspace = await api('/api/workspace'); render(); }
+catch (error) { $('#board').innerHTML = `<div class="empty-state"><h3>Could not load the workspace.</h3><p>${escapeHTML(error.message)} Refresh to try again.</p></div>`; toast(error.message, true); }

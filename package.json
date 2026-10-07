@@ -1,0 +1,16 @@
+{
+  "name": "tracework",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A local-first evidence-to-decision workspace",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test",
+    "check": "node --check server.js && node --check src/core.js && node --check public/app.js && npm test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

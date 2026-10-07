@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f4f1e9">
+  <meta name="description" content="Tracework: connect evidence to decisions and the work that follows.">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" type="module"></script>
+  <title>Tracework — make the thinking visible</title>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Workspace navigation">
+      <a class="brand" href="/" aria-label="Tracework home"><span class="brand-mark" aria-hidden="true">✳</span><span>tracework<span class="brand-dot">.</span></span></a>
+      <div class="workspace-label"><span class="pulse" aria-hidden="true"></span> LOCAL WORKSPACE <span class="local-icon" aria-hidden="true">↗</span></div>
+      <div class="side-section-label">WORKSPACE</div>
+      <nav id="navigation" aria-label="Views">
+        <button class="nav-item active" data-view="all"><span class="nav-glyph">▦</span> Overview <span class="nav-count" data-count="all"></span></button>
+        <button class="nav-item" data-view="source"><span class="nav-glyph">◧</span> Sources <span class="nav-count" data-count="source"></span></button>
+        <button class="nav-item" data-view="claim"><span class="nav-glyph">◇</span> Claims <span class="nav-count" data-count="claim"></span></button>
+        <button class="nav-item" data-view="decision"><span class="nav-glyph">◈</span> Decisions <span class="nav-count" data-count="decision"></span></button>
+        <button class="nav-item" data-view="task"><span class="nav-glyph">☑</span> Tasks <span class="nav-count" data-count="task"></span></button>
+        <button class="nav-item review-nav" data-view="review"><span class="nav-glyph">◐</span> Review queue <span class="nav-count" data-count="review"></span></button>
+      </nav>
+      <div class="side-section-label tools-label">YOUR DATA</div>
+      <div class="side-tools">
+        <a href="/api/export.md" class="side-link"><span>↧</span> Export brief <span class="side-hint">.md</span></a>
+        <a href="/api/export.json" class="side-link"><span>↧</span> Backup workspace <span class="side-hint">.json</span></a>
+        <button id="import-button" class="side-link"><span>↥</span> Import backup</button>
+        <input type="file" id="import-file" accept="application/json,.json" hidden>
+      </div>
+      <div class="sidebar-bottom">
+        <div class="aside-illustration" aria-hidden="true"><span>◯</span><span>────</span><span>◇</span><span>────</span><span>◈</span></div>
+        <p>Good work leaves a trail.</p>
+        <span>Everything stays on this machine.</span>
+      </div>
+    </aside>
+
+    <main class="main" id="main">
+      <header class="topbar">
+        <div class="breadcrumb">WORKSPACE <span>/</span> <strong id="breadcrumb-view">Overview</strong></div>
+        <div class="top-actions"><span id="sync-state" class="sync-state"><span class="sync-dot"></span> Saved locally</span><button id="new-item-top" class="primary-button"><span aria-hidden="true">＋</span> New item <kbd>N</kbd></button></div>
+      </header>
+      <section class="content">
+        <div class="page-intro">
+          <div><div class="eyebrow"><span class="eyebrow-line"></span> THE WORK BEHIND THE WORK</div><h1 id="page-title">Make the thinking <em>visible.</em></h1><p id="page-subtitle">From raw sources to considered decisions. Keep the why connected to what happens next.</p></div>
+          <div class="edition">RESEARCH DESK <span> / </span> 001</div>
+        </div>
+        <section class="metrics" aria-label="Workspace summary" id="metrics"></section>
+        <div class="section-head"><div><div class="section-kicker">THE EVIDENCE TRAIL</div><h2 id="board-title">Your work, connected <span id="result-count"></span></h2></div><div class="board-controls"><label class="search-box"><span aria-hidden="true">⌕</span><span class="sr-only">Search items</span><input id="search" type="search" placeholder="Search the workspace" autocomplete="off"><kbd>/</kbd></label><select id="sort" aria-label="Sort items"><option value="recent">Recently updated</option><option value="title">A to Z</option><option value="oldest">Oldest first</option></select></div></div>
+        <div class="trail-guide" aria-label="Workflow stages"><span><i class="stage-dot source-dot"></i> Collect</span><b>→</b><span><i class="stage-dot claim-dot"></i> Interpret</span><b>→</b><span><i class="stage-dot decision-dot"></i> Decide</span><b>→</b><span><i class="stage-dot task-dot"></i> Act</span><span class="guide-note">SELECT A CARD TO EXPLORE ITS CONNECTIONS</span></div>
+        <section class="board" id="board" aria-label="Evidence trail"></section>
+        <footer class="main-footer"><span>TRACEWORK / A SMALL SPACE FOR BIG QUESTIONS</span><button id="reset-button">Start a blank workspace ↗</button></footer>
+      </section>
+    </main>
+
+    <aside class="inspector" id="inspector" aria-label="Item details"><div class="inspector-placeholder"><div class="placeholder-art" aria-hidden="true">✳</div><span class="section-kicker">FOLLOW THE THREAD</span><h2>Every idea has<br>a history.</h2><p>Select a card to explore its context, connect it to other work, and see the evidence behind it.</p><div class="placeholder-keys"><kbd> N </kbd> new item <span>·</span> <kbd> / </kbd> search</div></div></aside>
+  </div>
+
+  <dialog id="item-dialog" aria-labelledby="dialog-title">
+    <form id="item-form" method="dialog" novalidate>
+      <div class="dialog-heading"><div><div class="section-kicker">ADD TO THE TRAIL</div><h2 id="dialog-title">New item</h2></div><button type="button" class="icon-button" id="close-dialog" aria-label="Close">✕</button></div>
+      <label class="field">What kind of item?<select id="field-type" name="type"><option value="source">Source — something you observed</option><option value="claim">Claim — something you believe</option><option value="decision">Decision — something you chose</option><option value="task">Task — something to do</option></select></label>
+      <label class="field">Title<input name="title" maxlength="160" required placeholder="Give it a clear, specific name"></label>
+      <label class="field">Notes <span class="field-optional">optional</span><textarea name="body" rows="5" maxlength="10000" placeholder="Context, reasoning, excerpts, or a next step..."></textarea></label>
+      <label class="field source-field">Source URL <span class="field-optional">optional</span><input name="url" type="url" maxlength="2048" placeholder="https://..."></label>
+      <label class="field status-field">Status<select name="status" id="field-status"></select></label>
+      <label class="field task-field">Due date <span class="field-optional">optional</span><input name="due" type="date"></label>
+      <div class="dialog-actions"><button type="button" id="cancel-dialog" class="secondary-button">Cancel</button><button class="primary-button" type="submit" id="submit-item">Create item <span>↗</span></button></div>
+    </form>
+  </dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+</body>
+</html>
