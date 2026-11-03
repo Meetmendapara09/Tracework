@@ -20,7 +20,7 @@
     "csv-parse": "^7.0.3",
     "csv-stringify": "^6.9.0",
     "minisearch": "^7.2.0",
-    "zod": "^4.6.5"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "jsdom": "26.1.0",
